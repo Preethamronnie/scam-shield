@@ -1,4 +1,4 @@
-"""Scam Shield web app. Run with:  streamlit run app.py"""
+"""Jagratha web app. Run with:  streamlit run app.py"""
 import html
 import json
 
@@ -14,7 +14,7 @@ from scamshield.links import inspect_link
 from scamshield.risk import CRITICAL, HIGH, MEDIUM
 
 load_dotenv()
-st.set_page_config(page_title="Scam Shield", page_icon="🛡️", layout="centered")
+st.set_page_config(page_title="Jagratha · Check before you trust", page_icon="🪔", layout="centered")
 
 STYLE = {
     SCAM: ("#b42318", "#fef3f2", "🚫"),
@@ -36,7 +36,9 @@ EXAMPLES = {
 }
 
 # --- settings ------------------------------------------------------------------------------------
-st.title("🛡️ Scam Shield")
+st.title("🪔 Jagratha")
+st.caption("జాగ్రత్త · ஜாக்கிரதை · ಜಾಗ್ರತೆ · ജാഗ്രത · जाग्रत · জাগ্রত: *be careful*, the way elders say it. "
+           "Check any message, chat or link before you trust it.")
 lang_now = st.session_state.get("language", "English")
 with st.expander(f"⚙️ Language ({lang_now}), text size and view"):
     language = st.selectbox("Language for the answer and voice", list(i18n.VOICE_CODES), key="language")
@@ -292,7 +294,7 @@ def render_result(result, photos: list[dict]) -> None:
             for m in rep.missing_information:
                 st.markdown(f"- {m}")
         st.download_button("Download the evidence (JSON)", json.dumps(rep.to_dict(), ensure_ascii=False, indent=2),
-                           file_name="scam-shield-evidence.json", mime="application/json")
+                           file_name="jagratha-evidence.json", mime="application/json")
         st.json({"language": rep.language.to_dict(), "input_type": rep.source, "analysis": rep.analysis,
                  "ml_model_output_uncalibrated": None if result.model_score is None else round(result.model_score, 3),
                  "words_that_raised_the_model_output": result.suspicious_words}, expanded=False)
@@ -474,5 +476,5 @@ with st.expander("🔒 How your messages and photos are handled"):
 - **Logs contain no message content:** only the verdict, which rules fired, timings and similar anonymous details.
 - **Feedback** stores message text only if you tick the box, with personal details masked, for human review.
 """)
-st.caption("Scam Shield gives a second opinion, not a guarantee. When in doubt, don't click, don't pay, "
+st.caption("Jagratha gives a second opinion, not a guarantee. When in doubt, don't click, don't pay, "
            "and check with someone you trust. In India, report fraud at cybercrime.gov.in or call 1930.")

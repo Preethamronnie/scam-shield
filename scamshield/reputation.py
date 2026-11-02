@@ -79,7 +79,7 @@ def _query(url: str, key: str) -> str:
     if not url.lower().startswith(("http://", "https://")):
         url = "http://" + url
     body = {
-        "client": {"clientId": "scam-shield", "clientVersion": "1.0"},
+        "client": {"clientId": "jagratha", "clientVersion": "1.0"},
         "threatInfo": {"threatTypes": THREATS, "platformTypes": ["ANY_PLATFORM"],
                        "threatEntryTypes": ["URL"], "threatEntries": [{"url": url}]},
     }

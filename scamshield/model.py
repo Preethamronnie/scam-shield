@@ -75,7 +75,7 @@ def save(pipe: Pipeline, path: Path = MODEL_PATH, training: dict | None = None) 
         "created": date.today().isoformat(),
         "sha256": _sha256(path),
         "training_data": training or {},
-        "intended_use": "One piece of corroborating evidence inside Scam Shield. Output is uncalibrated; "
+        "intended_use": "One piece of corroborating evidence inside Jagratha. Output is uncalibrated; "
                         "never show it to users as a probability.",
     }
     CARD_PATH.write_text(json.dumps(card, indent=2), encoding="utf-8")

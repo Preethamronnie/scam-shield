@@ -225,7 +225,7 @@ def conversation_section() -> list[str]:
 
 def main():
     sms, modern = load_sms(), load_modern()
-    out = ["# Scam Shield evaluation", ""]
+    out = ["# Jagratha evaluation", ""]
 
     tr, te = train_test_split(sms, test_size=0.2, stratify=sms["y"], random_state=SEED)
     sms_only = ml.train(tr["text"], tr["y"])

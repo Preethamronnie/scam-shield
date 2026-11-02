@@ -1,10 +1,12 @@
-# 🛡️ Scam Shield
+# 🪔 Jagratha
 
-**Paste a suspicious message and find out, in plain language, whether it's a scam and what to do.**
+**Check before you trust.** Paste a suspicious message, chat, screenshot or link and find out, in plain language, whether it's a scam and what to do.
+
+*Jagratha* is the word elders across India use when you step out of the house: జాగ్రత్త (Telugu), ஜாக்கிரதை (Tamil), ಜಾಗ್ರತೆ (Kannada), ജാഗ്രത (Malayalam) and जाग्रत / জাগ্রত (Hindi, Marathi, Bengali) all mean *be careful, stay alert*. The app tries to be that voice when a message feels wrong.
 
 Built for everyone: kids getting "free Robux" links, parents getting fake job offers and KYC alerts, grandparents getting "Hi Mum, new number" messages and fake electricity-cut threats.
 
-<!-- Add a screenshot or GIF of the app here: ![Scam Shield demo](docs/demo.gif) -->
+<!-- Add a screenshot or GIF of the app here: ![Jagratha demo](docs/demo.gif) -->
 <!-- Add your live demo link here once deployed: **[Try it live →](https://...)** -->
 
 ## What it does
@@ -314,7 +316,7 @@ tests/                     pytest suite
 
 ## Disclaimer
 
-Scam Shield gives a second opinion, not a guarantee. When in doubt: don't click, don't pay, don't share codes, and check with someone you trust.
+Jagratha gives a second opinion, not a guarantee. When in doubt: don't click, don't pay, don't share codes, and check with someone you trust.
 
 ## License
 

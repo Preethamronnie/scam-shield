@@ -1,4 +1,4 @@
-# Scam Shield evaluation
+# Jagratha evaluation
 
 ## A. ML model on its own (threshold 0.5)
 
