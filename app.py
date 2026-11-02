@@ -49,6 +49,8 @@ with st.expander(f"⚙️ Language ({lang_now}), text size and view"):
     large = st.toggle("Large text", key="large")
     simple = st.toggle("Simple view", key="simple",
                        help="Show just the answer and what to do. The evidence stays one tap away.")
+    st.caption("🌙 **Dark mode** follows your phone's setting automatically. To change it here, tap **⋮** "
+               "at the top right of the page → **Settings** → **Theme**.")
     online_possible = llm.available() or reputation.enabled()
     allow_online = st.toggle("Use online services", key="online", disabled=not online_possible,
                              help=None if online_possible else "Not set up on this app.")
@@ -66,6 +68,20 @@ def warm_model():
 
 
 warm_model()
+# Follow each viewer's light/dark setting (their phone, or the ⋮ menu).
+DARK = (st.context.theme or {}).get("type") == "dark"
+if DARK:
+    STYLE.update({SCAM: ("#fda29b", "#3d1714", "🚫"), CAREFUL: ("#fec84b", "#3b2a0e", "⚠️"),
+                  SAFE: ("#6ce9a6", "#0f2e20", "✅"), UNSURE: ("#d0d5dd", "#22262f", "❔")})
+    LINK_STYLE.update({"Dangerous": ("#fda29b", "#3d1714", "⛔"), "Suspicious": ("#fec84b", "#3b2a0e", "⚠️"),
+                       "Official website": ("#6ce9a6", "#0f2e20", "✅"),
+                       "No warning signs found": ("#d0d5dd", "#22262f", "ℹ️")})
+C = ({"calm_bg": "#102a56", "calm_fg": "#b2ccff", "calm_border": "#5b8def", "card_bg": "#1d2433",
+      "card_fg": "#f2f4f7", "card_sub": "#98a2b3", "card_border": "#344054", "them": "#262b36",
+      "you": "#14432a", "bubble_fg": "#f2f4f7", "who": "#98a2b3", "flag": "#fda29b"} if DARK else
+     {"calm_bg": "#eff8ff", "calm_fg": "#1849a9", "calm_border": "#1849a9", "card_bg": "#ffffff",
+      "card_fg": "#101828", "card_sub": "#475467", "card_border": "#d0d5dd", "them": "#f2f4f7",
+      "you": "#d1fadf", "bubble_fg": "#101828", "who": "#475467", "flag": "#b42318"})
 base = 23 if large else 18
 st.markdown(f"""
 <style>
@@ -80,22 +96,22 @@ st.markdown(f"""
   .sos {{ background: #b42318; color: #fff; border-radius: 12px; padding: 0.9rem 1.1rem; margin: 0.8rem 0; }}
   .sos a {{ color: #fff; font-weight: 700; text-decoration: underline; }}
   .sos .big {{ font-size: {base * 1.3:.0f}px; font-weight: 700; }}
-  .calm {{ background: #eff8ff; color: #1849a9; border: 2px solid #1849a9; border-radius: 12px;
+  .calm {{ background: {C["calm_bg"]}; color: {C["calm_fg"]}; border: 2px solid {C["calm_border"]}; border-radius: 12px;
            padding: 0.9rem 1.1rem; margin: 0.5rem 0 1rem; }}
   .calm .big {{ font-size: {base * 1.25:.0f}px; font-weight: 700; }}
-  .script {{ background: #ffffff; color: #101828; border-left: 6px solid #1d4ed8; border-radius: 8px;
+  .script {{ background: {C["card_bg"]}; color: {C["card_fg"]}; border-left: 6px solid {C["calm_border"]}; border-radius: 8px;
              padding: 0.7rem 1rem; margin: 0.4rem 0; font-size: {base * 1.2:.0f}px; font-weight: 600;
              box-shadow: 0 1px 2px rgba(16,24,40,.08); }}
-  .script .sub {{ font-size: {base * 0.85:.0f}px; font-weight: 400; color: #475467; margin-top: 0.2rem; }}
-  .msgbox {{ border: 1px solid #d0d5dd; border-radius: 10px; padding: 0.8rem 1rem; line-height: 1.7;
-             background: #ffffff; color: #101828; }}
-  .bubble {{ max-width: 85%; border-radius: 12px; padding: 0.5rem 0.75rem; margin: 0.25rem 0; color: #101828; }}
-  .them {{ background: #f2f4f7; margin-right: auto; }}
-  .you {{ background: #d1fadf; margin-left: auto; }}
+  .script .sub {{ font-size: {base * 0.85:.0f}px; font-weight: 400; color: {C["card_sub"]}; margin-top: 0.2rem; }}
+  .msgbox {{ border: 1px solid {C["card_border"]}; border-radius: 10px; padding: 0.8rem 1rem; line-height: 1.7;
+             background: {C["card_bg"]}; color: {C["card_fg"]}; }}
+  .bubble {{ max-width: 85%; border-radius: 12px; padding: 0.5rem 0.75rem; margin: 0.25rem 0; color: {C["bubble_fg"]}; }}
+  .them {{ background: {C["them"]}; margin-right: auto; }}
+  .you {{ background: {C["you"]}; margin-left: auto; }}
   .flagged {{ border: 2px solid #d92d20; }}
-  .who {{ font-size: 0.75em; color: #475467; font-weight: 600; }}
-  .flag {{ font-size: 0.85em; color: #b42318; margin-top: 0.2rem; }}
-  .turnpoint {{ text-align: center; color: #b42318; font-weight: 700; margin: 0.6rem 0; }}
+  .who {{ font-size: 0.75em; color: {C["who"]}; font-weight: 600; }}
+  .flag {{ font-size: 0.85em; color: {C["flag"]}; margin-top: 0.2rem; }}
+  .turnpoint {{ text-align: center; color: {C["flag"]}; font-weight: 700; margin: 0.6rem 0; }}
   textarea {{ font-size: {base * 1.05:.0f}px !important; }}
 </style>
 """, unsafe_allow_html=True)

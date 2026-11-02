@@ -1,6 +1,12 @@
-[theme]
+# Separate light and dark themes, so the app follows each viewer's phone or
+# browser setting, and viewers can still switch in the ⋮ menu. (Setting colours
+# under plain [theme] would lock everyone into a single light theme.)
 # Calm blue for actions; red is reserved for scam warnings.
+[theme.light]
 primaryColor = "#1d4ed8"
+
+[theme.dark]
+primaryColor = "#5b8def"
 
 [browser]
 gatherUsageStats = false
