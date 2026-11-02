@@ -45,3 +45,37 @@ def test_everyday_messages(text):
 def test_empty_message():
     with pytest.raises(ValueError):
         analyze("   ")
+
+
+@pytest.mark.parametrize("text,flag", [
+    ("Download the SBI Rewards app from this link: sbi-rewards.apk", "apk_file"),
+    ("You are under digital arrest. Stay on the video call.", "digital_arrest"),
+    ("Mummy I had an accident, please send Rs 50,000 on UPI", "emergency_money"),
+    ("Pay Rs 25,000 or I will share the video with your family", "sextortion"),
+    ("I sent Rs 5,000 to you by mistake, please return it", "sent_by_mistake"),
+    ("Your credit card reward points expire today", "reward_points"),
+    ("Upgrade your SIM to eSIM 5G, reply with the code we sent", "sim_swap"),
+    ("Earn Rs 150 for every hotel review on Google Maps", "job_task_fee"),
+])
+def test_current_scam_types(text, flag):
+    assert flag in ids(text)
+
+
+def test_red_flags_survive_line_breaks():
+    # Text read from a screenshot is split into lines mid-sentence.
+    assert "reward_points" in ids("your SBI reward\npoints will expire\ntoday")
+
+
+def test_photo_text_extraction(tmp_path):
+    from PIL import Image, ImageDraw, ImageFont
+    from scamshield import ocr
+
+    if not ocr.available():
+        pytest.skip("no OCR engine installed")
+    im = Image.new("RGB", (900, 200), "white")
+    ImageDraw.Draw(im).text((20, 60), "Share your OTP to unblock your account",
+                            fill="black", font=ImageFont.load_default(size=40))
+    path = tmp_path / "msg.png"
+    im.save(path)
+    text, _ = ocr.extract_text(path.read_bytes())
+    assert "otp" in text.lower()

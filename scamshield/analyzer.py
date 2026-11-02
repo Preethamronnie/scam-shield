@@ -50,6 +50,10 @@ def combine(model_p: float | None, rules_p: float, signals: list[Signal]) -> flo
     # for a prize) is enough on its own, whatever the model thinks.
     if any(s.weight >= 0.9 for s in signals):
         score = max(score, 0.8)
+    # Several independent red flags together are strong evidence too, even
+    # when the message is worded like normal chat ("Hi Mum, new number...").
+    elif rules_p >= 0.85:
+        score = max(score, 0.7)
     return score
 
 

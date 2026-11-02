@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from scamshield import analyze
 from scamshield import explain as llm
 from scamshield import model as ml
+from scamshield import ocr
 from scamshield.analyzer import CAREFUL, SAFE, SCAM
 
 load_dotenv()
@@ -19,7 +20,7 @@ STYLE = {
 EXAMPLES = {
     "Bank KYC message": "Dear customer your account will be blocked today. Update your KYC immediately: http://sbi-kyc-update.example.xyz",
     "'Hi Mum' message": "Hi Mum, I dropped my phone, this is my new number. Can you send me money urgently? Don't tell Dad.",
-    "Job offer": "Part time job! Earn Rs 5000 daily by liking YouTube videos. WhatsApp HR now.",
+    "Police video call": "This is Mumbai Cyber Crime. A parcel in your name has drugs. Join the video call now, you are under digital arrest. Don't tell your family.",
     "Real OTP": "482915 is your OTP for login. Do not share it with anyone. Bank staff will never ask for it.",
 }
 
@@ -34,7 +35,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("🛡️ Scam Shield")
-st.write("Got a message that feels wrong? Paste it below and find out if it's a scam.")
+st.write("Got a message that feels wrong? Paste it below, or tap ➕ to add a screenshot, and find out if it's a scam.")
 
 if "text" not in st.session_state:
     st.session_state.text = ""
@@ -45,9 +46,25 @@ for col, (label, msg) in zip(cols, EXAMPLES.items()):
     if col.button(label, use_container_width=True):
         st.session_state.text = msg
 
-text = st.text_area("Message", key="text", height=150,
-                    placeholder="Paste an SMS, WhatsApp, email or describe a call you got…",
-                    label_visibility="collapsed")
+@st.cache_data(show_spinner=False)
+def read_photo(data: bytes, mime: str) -> tuple[str, str]:
+    return ocr.extract_text(data, mime)
+
+
+box, plus = st.columns([0.9, 0.1], vertical_alignment="top")
+with box:
+    text = st.text_area("Message", key="text", height=150,
+                        placeholder="Paste an SMS, WhatsApp, email or describe a call you got…",
+                        label_visibility="collapsed")
+with plus:
+    with st.popover("➕", help="Add a screenshot or photo of the message", use_container_width=True):
+        photos = st.file_uploader("Add a screenshot or photo of the message",
+                                  type=["png", "jpg", "jpeg", "webp"],
+                                  accept_multiple_files=True, key="photos")
+        st.caption("You can add more than one, e.g. a long chat in parts.")
+
+if photos:
+    st.caption(f"📎 {len(photos)} photo{'s' if len(photos) > 1 else ''} added. Press Check message to read {'them' if len(photos) > 1 else 'it'}.")
 
 language = st.selectbox("Explain in", llm.LANGUAGES, disabled=not llm.available(),
                         help=None if llm.available() else "Add an OpenAI API key to get explanations in other languages.")
@@ -56,11 +73,36 @@ if ml.load() is None:
     st.info("The ML model isn't trained yet, so only the red-flag rules are used. Run `python -m scripts.train` for full accuracy.")
 
 if st.button("Check message", type="primary", use_container_width=True):
-    if not text.strip():
-        st.warning("Paste a message first, then press Check message.")
+    if not text.strip() and not photos:
+        st.warning("Paste a message or add a photo with ➕, then press Check message.")
         st.stop()
 
-    result = analyze(text)
+    photo_texts = []
+    if photos:
+        if not ocr.available():
+            st.error("Reading photos isn't set up on this computer yet. Install Tesseract OCR "
+                     "(see the README) or paste the message text instead.")
+            st.stop()
+        with st.spinner("Reading the text in your photo…"):
+            for p in photos:
+                try:
+                    found, method = read_photo(p.getvalue(), p.type or "image/png")
+                except Exception as e:
+                    st.error(f"Couldn't read {p.name} ({type(e).__name__}). Try a clearer screenshot or paste the text.")
+                    continue
+                photo_texts.append(found)
+                with st.expander(f"Text found in {p.name}", expanded=not text.strip()):
+                    c1, c2 = st.columns([1, 2])
+                    c1.image(p, use_container_width=True)
+                    c2.text(found or "No text found in this image.")
+                    c2.caption(f"Read with {method}. If something is wrong, paste the text in the box instead.")
+
+    combined = "\n".join(t for t in [text.strip(), *photo_texts] if t.strip())
+    if not combined:
+        st.warning("No text could be found in the photo. Try a clearer screenshot or paste the message.")
+        st.stop()
+
+    result = analyze(combined)
     fg, bg, icon = STYLE[result.verdict]
     st.markdown(
         f'<div class="verdict" style="background:{bg};color:{fg};border:2px solid {fg}">'
@@ -72,7 +114,7 @@ if st.button("Check message", type="primary", use_container_width=True):
     if llm.available():
         with st.spinner("Writing a simple explanation…"):
             try:
-                st.write(llm.explain(text, result, language))
+                st.write(llm.explain(combined, result, language))
             except Exception as e:  # network/API problems shouldn't break the app
                 st.caption(f"Explanation unavailable right now ({type(e).__name__}).")
 
