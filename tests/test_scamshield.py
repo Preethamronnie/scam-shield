@@ -723,3 +723,111 @@ def test_feedback_without_consent_stores_no_text():
     from scamshield import feedback
     rec = feedback.build_record("correct", analyze("Share the OTP now"), share_text=False)
     assert "text_masked" not in rec and "Share the OTP" not in str(rec)
+
+
+# --- "I'm on a call" mode -------------------------------------------------------------------------------------------
+from scamshield import oncall  # noqa: E402
+
+
+def test_any_single_call_red_flag_means_hang_up():
+    for check in oncall.CHECKS:
+        advice = oncall.assess_call([check.key])
+        assert advice.is_scam and "Hang up" in advice.headline
+
+
+def test_no_ticks_gives_guidance_not_a_verdict():
+    assert not oncall.assess_call([]).is_scam
+
+
+def test_call_scams_in_messages_point_to_call_mode():
+    r = analyze("This is Mumbai Cyber Crime. You are under digital arrest. Stay on the video call.")
+    assert oncall.suggests_live_call(s.id for s in r.signals)
+    assert not oncall.suggests_live_call(s.id for s in analyze("Win a free iPhone! Claim at bit.ly/x").signals)
+
+
+def test_call_phrases_exist_in_every_language():
+    from scamshield.i18n import CALL_PHRASES, PHRASES
+    assert set(CALL_PHRASES) == set(PHRASES)
+    keys = set(CALL_PHRASES["English"])
+    assert all(set(p) == keys for p in CALL_PHRASES.values())
+
+
+# --- Jagratha Circle --------------------------------------------------------------------------------------------------
+from scamshield import circle  # noqa: E402
+
+
+def test_defang_makes_links_unclickable_but_keeps_amounts():
+    out = circle.defang("Visit https://sbi-kyc.example.xyz/u/abc or www.foo.in. Pay Rs 1,250.50")
+    assert "hxxps://sbi-kyc[.]example[.]xyz/u/abc" in out and "www[.]foo[.]in" in out and "1,250.50" in out
+
+
+def test_family_message_hides_private_numbers_but_keeps_scammer_details():
+    out = circle.mask_private("OTP 482915, A/c XX4521, card 4111 1111 1111 1111. Call 9876543210, pay rahul@ybl")
+    assert "482915" not in out and "4521" not in out and "4111" not in out
+    assert "9876543210" in out and "rahul@ybl" in out
+
+
+def test_family_message_contents():
+    import re
+    from scamshield.analyzer import check
+    r = check("Dear customer your SBI account will be blocked today. Call officer 9XXXXXXXX3 or update KYC: "
+              "http://sbi-kyc-update.example.xyz. Pay Rs 10 to sbi.kyc@ybl")
+    msg = circle.family_message(r, "Hindi", "https://jagratha.streamlit.app")
+    assert msg.startswith("मुझे") and "LIKELY A SCAM" in msg and "State Bank of India" in msg
+    body = msg.split("Checked with")[0]
+    assert not re.search(r"sbi-kyc-update\.example\.xyz", body)       # no tappable scam link
+    assert "9XXXXXXXX3" in msg and "https://jagratha.streamlit.app" in msg
+
+
+def test_share_links_carry_the_whole_message():
+    from urllib.parse import unquote
+    text = "Please call me.\nLink: hxxps://x[.]top & more"
+    assert unquote(circle.whatsapp_link(text).split("text=", 1)[1]) == text
+    assert circle.sms_link(text).startswith("sms:")
+
+
+# --- Complaint kit -----------------------------------------------------------------------------------------------------
+from scamshield import complaint  # noqa: E402
+
+
+def _incident(**kw):
+    from datetime import date, time
+    base = dict(happened=["paid"], when_date=date(2026, 11, 1), when_time=time(14, 30), amount=25000.0,
+                payment_method="UPI (GPay, PhonePe, Paytm, etc.)", transaction_ids=["412345678901"],
+                user_bank="HDFC Bank", suspect_payment_ids=["fraud@ybl"])
+    base.update(kw)
+    return complaint.Incident(**base)
+
+
+def test_complaint_has_the_details_police_and_banks_need():
+    i = _incident()
+    text = complaint.complaint_text(i)
+    for needed in ["Rs 25,000", "01 November 2026", "2:30 PM", "412345678901", "fraud@ybl"]:
+        assert needed in text
+    bank = complaint.bank_request(i)
+    assert "HDFC Bank" in bank and "lien" in bank and "412345678901" in bank
+    assert complaint.portal_category(i) == "Online Financial Fraud, then UPI related fraud"
+
+
+def test_complaint_prefills_from_the_checked_message():
+    from scamshield.analyzer import check
+    r = check("Your SBI account will be blocked. Call 9876543210 or pay sbi.kyc@ybl at http://sbi-kyc.example.xyz.")
+    pre = complaint.from_report(r.report)
+    assert pre["suspect_phones"] == ["9876543210"] and pre["suspect_payment_ids"] == ["sbi.kyc@ybl"]
+    assert pre["suspect_links"] == ["http://sbi-kyc.example.xyz"]   # no trailing full stop
+
+
+def test_complaint_page_is_safe_and_keeps_indian_scripts():
+    page = complaint.as_html(_incident(description="मैंने लिंक खोला। <script>alert(1)</script>"))
+    assert "मैंने लिंक खोला" in page and "<script>alert" not in page
+
+
+def test_evidence_checklist_matches_what_happened():
+    assert any("UTR" in x for x in complaint.evidence_checklist(_incident()))
+    blackmail = complaint.evidence_checklist(_incident(happened=["threat"], amount=0.0))
+    assert any("threats" in x for x in blackmail) and not any("UTR" in x for x in blackmail)
+
+
+def test_links_lose_trailing_punctuation():
+    from scamshield.links import find_links
+    assert find_links("Go to http://x.example.xyz. Or bit.ly/abc!") == ["http://x.example.xyz", "bit.ly/abc"]

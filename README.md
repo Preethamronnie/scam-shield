@@ -11,7 +11,7 @@ Built for everyone: kids getting "free Robux" links, parents getting fake job of
 
 ## What it does
 
-Three tabs, designed so a child, a parent and a grandparent can all use it:
+Four tabs, designed so a child, a parent and a grandparent can all use it:
 
 **📩 Message.** Paste a message, paste or export a whole chat, or tap **+** to add a screenshot.
 - One of four verdicts: **Likely a scam**, **Be careful**, **No obvious threat detected**, or **Insufficient information**, with a confidence level and a risk score that is clearly *not* a probability.
@@ -22,7 +22,13 @@ Three tabs, designed so a child, a parent and a grandparent can all use it:
 
 **🔗 Link.** Paste just a link. Without opening it, the app checks for look-alike brand names, the `@` trick, look-alike letters (punycode), number addresses, `.apk` downloads, risky endings like `.top`, scam words like "kyc" or "reward", and, optionally, Google Safe Browsing. On request it follows the link's redirects to show where it really leads (see Safety below).
 
-**🆘 Get help.** For someone who has already paid or shared details: a big "Call 1930" banner and link to cybercrime.gov.in, then step-by-step actions tailored to what happened (sent money, shared an OTP, installed an app, shared ID, being blackmailed), most urgent first. The same banner appears on every warning verdict.
+**📞 On a call.** For the most dangerous moment: digital-arrest and fake-police scams keep victims on the phone for hours so they can't stop and check. This screen gives a calm message, a script to say ("I will verify this myself and call you back"), big **Call 1930** and **Alert my family** buttons, and a checklist of things genuine officials never do on a call. Tick any one and it says plainly: *this is a scam, hang up now*. All in the chosen language, and it can be read aloud.
+
+**👨‍👩‍👧 Ask my family (Jagratha Circle).** Every warning has a button that opens WhatsApp or SMS with a short message for a family member: the verdict, the red flags, and "please call me before I do anything". The user picks who to send it to in their own app, so nothing goes through the server. Scam links in the message are *defanged* (`sbi-kyc[.]example[.]xyz`) so a relative can't open them by accident, and the user's OTPs and account numbers are hidden, while the scammer's number and UPI ID stay visible so the family can judge and report.
+
+**🆘 Help.** For someone who has already paid or shared details: a big "Call 1930" banner and link to cybercrime.gov.in, then step-by-step actions tailored to what happened (sent money, shared an OTP, installed an app, shared ID, being blackmailed), most urgent first. The same banner appears on every warning verdict.
+
+**📝 Complaint kit** (in the Help tab). A few questions (what happened, when, how much, the UTR number) turn into a complaint summary ready to paste into cybercrime.gov.in, a request asking the user's bank to block the transaction and freeze the money, and a checklist of evidence to keep. Scammer details from the message just checked (phone numbers, UPI IDs, links, who they pretended to be) are filled in automatically. It downloads as a print-ready web page rather than a PDF, because a basic PDF can't show Indian scripts without bundling large fonts, while a web page uses the phone's own fonts and can still be saved as PDF from the browser. Nothing entered is stored.
 
 Every warning also includes **📚 How this scam works**: the technique, the psychological trick it relies on, the fact that breaks it ("There is no such thing as a 'digital arrest' under Indian law…") and a habit to protect you next time. Users can report whether a verdict was right, for human review.
 
@@ -266,7 +272,7 @@ For explanations in other languages and the most accurate photo reading, copy `.
 ## Project layout
 
 ```
-app.py                     Streamlit web app (message, link and help tabs)
+app.py                     Streamlit web app (message, link, on-a-call and help tabs)
 .streamlit/config.toml     Theme: calm blue for actions, red kept for warnings
 scamshield/signals.py      Rule-based red flags with plain-language reasons
 scamshield/model.py        TF-IDF + logistic regression classifier, word-level explanations
@@ -281,8 +287,11 @@ scamshield/analyzer.py     Runs everything and returns verdict, evidence and adv
 scamshield/explain.py      Optional LLM explanation of the evidence, with grounding check
 scamshield/highlight.py    Marks and numbers the exact suspicious sentences
 scamshield/redirects.py    Opt-in redirect follower with SSRF protection
-scamshield/i18n.py         Fixed verdict sentences in 8 languages, for voice
+scamshield/i18n.py         Fixed verdict, call-script and family sentences in 8 languages
 scamshield/emergency.py    Step-by-step help after a scam, by situation
+scamshield/oncall.py       "I'm on a call" mode: caller red flags and advice
+scamshield/circle.py       Family message: defanged links, private details hidden, WhatsApp/SMS links
+scamshield/complaint.py    Complaint kit: portal complaint, bank request, evidence checklist
 scamshield/education.py    How each scam technique works and the fact that breaks it
 scamshield/safety.py       Input limits, file-type checks, decompression-bomb protection
 scamshield/privacy.py      Masking personal details before anything leaves the server

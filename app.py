@@ -5,7 +5,11 @@ import json
 import streamlit as st
 from dotenv import load_dotenv
 
-from scamshield import education, emergency, feedback, i18n, ocr, redirects, reputation, safety, telemetry
+from datetime import date
+from urllib.parse import urlsplit
+
+from scamshield import (circle, complaint, education, emergency, feedback, i18n, ocr, oncall, redirects,
+                        reputation, safety, telemetry)
 from scamshield import explain as llm
 from scamshield import model as ml
 from scamshield.analyzer import CAREFUL, SAFE, SCAM, UNSURE, check
@@ -76,6 +80,13 @@ st.markdown(f"""
   .sos {{ background: #b42318; color: #fff; border-radius: 12px; padding: 0.9rem 1.1rem; margin: 0.8rem 0; }}
   .sos a {{ color: #fff; font-weight: 700; text-decoration: underline; }}
   .sos .big {{ font-size: {base * 1.3:.0f}px; font-weight: 700; }}
+  .calm {{ background: #eff8ff; color: #1849a9; border: 2px solid #1849a9; border-radius: 12px;
+           padding: 0.9rem 1.1rem; margin: 0.5rem 0 1rem; }}
+  .calm .big {{ font-size: {base * 1.25:.0f}px; font-weight: 700; }}
+  .script {{ background: #ffffff; color: #101828; border-left: 6px solid #1d4ed8; border-radius: 8px;
+             padding: 0.7rem 1rem; margin: 0.4rem 0; font-size: {base * 1.2:.0f}px; font-weight: 600;
+             box-shadow: 0 1px 2px rgba(16,24,40,.08); }}
+  .script .sub {{ font-size: {base * 0.85:.0f}px; font-weight: 400; color: #475467; margin-top: 0.2rem; }}
   .msgbox {{ border: 1px solid #d0d5dd; border-radius: 10px; padding: 0.8rem 1rem; line-height: 1.7;
              background: #ffffff; color: #101828; }}
   .bubble {{ max-width: 85%; border-radius: 12px; padding: 0.5rem 0.75rem; margin: 0.25rem 0; color: #101828; }}
@@ -138,6 +149,110 @@ def sos_banner() -> None:
         "The first few hours matter most.</div>", unsafe_allow_html=True)
 
 
+def app_url() -> str | None:
+    """This app's own address, for the family message (works locally and on Streamlit Cloud)."""
+    try:
+        parts = urlsplit(st.context.url)
+        return f"{parts.scheme}://{parts.netloc}" if parts.netloc else None
+    except Exception:
+        return None
+
+
+def share_buttons(text: str, key: str, label: str = "Ask my family") -> None:
+    """Open the user's own WhatsApp or SMS app with the message ready. Nothing goes through the server."""
+    st.markdown(f"**👨‍👩‍👧 {label}**")
+    a, b = st.columns(2)
+    a.link_button("Send on WhatsApp", circle.whatsapp_link(text), width="stretch")
+    b.link_button("Send as SMS", circle.sms_link(text), width="stretch")
+    with st.expander("See the message first"):
+        st.code(text, language=None, wrap_lines=True)
+        st.caption("You choose who to send it to in WhatsApp or your messages app. Links are made "
+                   "unclickable so nobody opens the scam link by accident, and your OTPs and account "
+                   "numbers are hidden.")
+
+
+def call_mode() -> None:
+    st.markdown(f'<div class="calm"><div class="big">{html.escape(i18n.phrase("call_calm", language))}</div>'
+                + ("" if language == "English" else f'<div>{html.escape(i18n.phrase("call_calm", "English"))}</div>')
+                + "</div>", unsafe_allow_html=True)
+    st.markdown("**Say this to the caller:**")
+    for key in ("call_say1", "call_say2"):
+        line = i18n.phrase(key, language)
+        sub = "" if language == "English" else f'<div class="sub">{html.escape(i18n.phrase(key, "English"))}</div>'
+        st.markdown(f'<div class="script">“{html.escape(line)}”{sub}</div>', unsafe_allow_html=True)
+    st.markdown(f"**Then:** {i18n.phrase('call_hangup', language)}")
+    a, b = st.columns(2)
+    a.link_button(f"📞 Call {emergency.HELPLINE}", f"tel:{emergency.HELPLINE}", type="primary", width="stretch")
+    b.link_button("💬 Alert my family", circle.whatsapp_link(circle.call_alert(language, app_url())),
+                  width="stretch")
+    st.caption("Calling 1930 is free. Your family gets a WhatsApp message asking them to call you; "
+               "you choose who in WhatsApp.")
+
+    st.markdown("**Is the caller doing any of these?** Tick what's true.")
+    ticked = [c.key for c in oncall.CHECKS if st.checkbox(c.question, key=f"call_{c.key}")]
+    advice = oncall.assess_call(ticked)
+    if advice.is_scam:
+        st.markdown(f'<div class="sos"><div class="big">{advice.headline}</div>'
+                    + "".join(f"<div>• {html.escape(r)}</div>" for r in advice.reasons) + "</div>",
+                    unsafe_allow_html=True)
+    else:
+        st.info(advice.headline)
+
+    speak_button(" ".join(i18n.phrase(k, language) for k in ("call_calm", "call_say1", "call_say2", "call_hangup")),
+                 language, key="speak_call")
+    st.caption("Tip: if you're using the phone for the call, use speaker mode or headphones to read this screen.")
+
+
+def complaint_kit(report) -> None:
+    st.subheader("📝 Complaint kit")
+    st.write("Answer a few questions and get a complaint ready to file on cybercrime.gov.in, plus a request "
+             "for your bank. Details from the message you checked are filled in for you. Nothing is stored.")
+    pre = complaint.from_report(report)
+    with st.form("complaint_form"):
+        happened = st.multiselect("What happened?", list(emergency.SITUATIONS), format_func=emergency.SITUATIONS.get)
+        c1, c2 = st.columns(2)
+        when_date = c1.date_input("Date", value=date.today(), max_value=date.today(), format="DD/MM/YYYY")
+        when_time = c2.time_input("Approximate time", value=None)
+        contact = st.selectbox("How did they contact you?", complaint.CONTACT_METHODS, index=None)
+        claimed = st.text_input("Who did they pretend to be?", value=pre.get("claimed_to_be", ""))
+        c3, c4 = st.columns(2)
+        amount = c3.number_input("Amount lost (Rs)", min_value=0.0, step=100.0, format="%.2f")
+        method = c4.selectbox("Paid by", complaint.PAYMENT_METHODS, index=None)
+        utrs = st.text_area("Transaction ID / UTR numbers (one per line)",
+                            help="Find these in your bank or UPI app's payment history.", height=80)
+        bank = st.text_input("Your bank or payment app", placeholder="e.g. SBI, HDFC Bank, PhonePe")
+        phones = st.text_area("Scammer's phone numbers (one per line)", value="\n".join(pre.get("suspect_phones", [])), height=70)
+        pay_ids = st.text_area("UPI IDs or accounts they asked you to pay (one per line)",
+                               value="\n".join(pre.get("suspect_payment_ids", [])), height=70)
+        links = st.text_area("Links or websites (one per line)", value="\n".join(pre.get("suspect_links", [])), height=70)
+        story = st.text_area("What happened, in your own words (any language)", height=120,
+                             placeholder="e.g. I got a call from someone saying they were from the police…")
+        made = st.form_submit_button("Make my complaint", type="primary", width="stretch")
+    if made:
+        lines = lambda t: [x.strip() for x in t.splitlines() if x.strip()]
+        st.session_state.incident = complaint.Incident(
+            happened=happened, when_date=when_date, when_time=when_time, contact_method=contact or "",
+            claimed_to_be=claimed, scam_type=pre.get("scam_type", ""), amount=amount, payment_method=method or "",
+            transaction_ids=lines(utrs), user_bank=bank, suspect_phones=lines(phones),
+            suspect_payment_ids=lines(pay_ids), suspect_links=lines(links),
+            suspect_other=pre.get("suspect_other", []), description=story)
+    inc = st.session_state.get("incident")
+    if inc:
+        st.success(f"Ready. On cybercrime.gov.in, choose: {complaint.portal_category(inc)}.")
+        st.markdown("**1. Complaint summary**: copy it with the button in the corner and paste it into the portal.")
+        st.code(complaint.complaint_text(inc), language=None, wrap_lines=True)
+        st.markdown("**2. Request to your bank**: send it from the bank's official app, email or branch.")
+        st.code(complaint.bank_request(inc), language=None, wrap_lines=True)
+        st.markdown("**3. Evidence to keep**")
+        for item in complaint.evidence_checklist(inc):
+            st.markdown(f"- {item}")
+        d1, d2 = st.columns(2)
+        d1.download_button("Download (print or save as PDF)", complaint.as_html(inc), file_name="complaint-kit.html",
+                           mime="text/html", width="stretch")
+        d2.download_button("Download as text", complaint.as_text(inc), file_name="complaint-kit.txt",
+                           mime="text/plain", width="stretch")
+
+
 def emergency_steps(key: str) -> None:
     st.markdown("**What happened?** Tick all that apply.")
     chosen = [k for k, label in emergency.SITUATIONS.items() if st.checkbox(label, key=f"{key}_{k}")]
@@ -191,10 +306,16 @@ def render_result(result, photos: list[dict]) -> None:
     speak_button(spoken, language, key="speak")
 
     # 2. Emergency help, prominently, whenever there's a warning.
+    if result.verdict in (SCAM, CAREFUL) and oncall.suggests_live_call(s.id for s in result.signals):
+        st.warning("**Are you on a call with them right now?** Open the **📞 On a call** tab for what to say, "
+                   "and hang up.")
     if result.verdict in (SCAM, CAREFUL):
         sos_banner()
         with st.expander("Step-by-step help if you already paid or shared details"):
             emergency_steps("sos_result")
+            st.caption("The **🆘 Help** tab can also prepare your complaint for cybercrime.gov.in and your bank.")
+    if result.verdict in (SCAM, CAREFUL, UNSURE):
+        share_buttons(circle.family_message(result, language, app_url()), key="share_result")
 
     # 3. Exactly why.
     st.subheader("Exactly what's suspicious")
@@ -318,7 +439,7 @@ def render_result(result, photos: list[dict]) -> None:
 # across users or written to disk).
 
 
-tab_msg, tab_link, tab_help = st.tabs(["📩 Message", "🔗 Link", "🆘 Get help"])
+tab_msg, tab_link, tab_call, tab_help = st.tabs(["📩 Message", "🔗 Link", "📞 On a call", "🆘 Help"])
 
 # --- tab 1: messages and conversations --------------------------------------------------------------
 with tab_msg:
@@ -455,11 +576,17 @@ with tab_link:
         st.caption("Blocklist checks are off on this app. They need a free Google Safe Browsing key (see the README).")
 
 # --- tab 3: emergency -------------------------------------------------------------------------------
+with tab_call:
+    call_mode()
+
 with tab_help:
     sos_banner()
     st.write("Tell us what happened and we'll show what to do, most urgent first.")
     emergency_steps("sos_tab")
     speak_button(i18n.PHRASES[language]["paid"], language, key="speak_sos")
+    st.divider()
+    last = st.session_state.get("result")
+    complaint_kit(last[0].report if last else None)
 
 st.divider()
 with st.expander("🔒 How your messages and photos are handled"):

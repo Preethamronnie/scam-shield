@@ -151,7 +151,9 @@ def brands_in_text(text: str) -> set[str]:
 
 def find_links(text: str) -> list[str]:
     # A bare "name.apk" is a file name (handled by the APK rule), not a website.
-    return [u for u in _URL.findall(text) if not (u.lower().endswith(".apk") and "/" not in u)]
+    # Sentence punctuation right after a link isn't part of it ("…example.xyz.").
+    links = [u.rstrip(".,;:!?)]'\"") for u in _URL.findall(text)]
+    return [u for u in links if u and not (u.lower().endswith(".apk") and "/" not in u)]
 
 
 def _display(brand: str) -> str:
