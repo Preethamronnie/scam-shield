@@ -1,0 +1,10 @@
+[theme]
+# Calm blue for actions; red is reserved for scam warnings.
+primaryColor = "#1d4ed8"
+
+[browser]
+gatherUsageStats = false
+
+[server]
+# Uploads larger than this are refused before they reach the app (see scamshield/safety.py).
+maxUploadSize = 10

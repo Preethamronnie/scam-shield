@@ -9,23 +9,28 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from .links import check_links, find_links, host_of, is_official
+
+LINK_DEPENDENT = {"fine_or_toll", "govt_scheme", "reward_points"}
+
 
 @dataclass(frozen=True)
 class Signal:
     id: str
-    weight: float  # how strongly this points to a scam, 0-1
-    reason: str    # shown to the user
+    strength: float  # how clearly the text shows this tactic, 0-1
+    reason: str      # shown to the user
+    phrase: str = ""   # short quote of the words that triggered it (may be shortened with …)
+    context: str = ""  # the full sentence(s) around the match, for highlighting
 
 
-_URL = re.compile(r"(https?://\S+|www\.\S+|\b[\w-]+\.(?:xyz|top|click|info|win|fun|site|link|co|ly|buzz|live|icu)\b\S*)", re.I)
-_SHORTENER = re.compile(r"\b(bit\.ly|tinyurl\.com|t\.co|goo\.gl|is\.gd|cutt\.ly|rb\.gy)/", re.I)
-_RISKY_TLD = re.compile(r"\.(xyz|top|click|info|win|fun|site|link|buzz|icu|live)\b", re.I)
-_BRAND_IN_DOMAIN = re.compile(r"https?://[^\s/]*(sbi|hdfc|icici|axis|paytm|amazon|flipkart|usps|indiapost|fedex|dhl|paypal|netflix|insta|whatsapp|itr|incometax)[^\s/]*[-.]", re.I)
 
+# (id, strength, pattern, reason). Strength is how unambiguously the text
+# shows the tactic, not how dangerous it is: danger comes from the rule's risk
+# category (see risk.py).
 _PATTERNS: list[tuple[str, float, str, str]] = [
     ("asks_secret", 0.95,
-     r"\b(otp|one[- ]time password|verification code|upi pin|\bpin\b|cvv|password|6 digit code)\b.{0,60}\b(share|send|tell|enter|give|reply)\b"
-     r"|\b(share|send|tell|give|enter)\b.{0,60}\b(otp|verification code|upi pin|cvv|password|code)\b",
+     r"\b(otp|one[- ]time password|verification code|upi pin|\bpin\b|cvv|password|6 digit code)\b.{0,60}\b(share|send|tell|enter|give|reply|forward)\b"
+     r"|\b(share|send|tell|give|enter|reply with|forward)\b.{0,60}\b(otp|verification code|upi pin|cvv|password|code)\b",
      "It asks you to share a code, PIN or password. Real banks and companies never ask for these."),
     ("pin_to_receive", 0.95,
      r"\b(receive|accept|get)\b.{0,40}\b(money|payment|rs|refund)\b.{0,60}\b(pin|scan|qr)\b"
@@ -40,10 +45,15 @@ _PATTERNS: list[tuple[str, float, str, str]] = [
      r"|\b(pay|fee|charge)\b.{0,80}\b(to claim|to start|to release|to get it)\b",
      "It asks you to pay money to get a prize, job, loan or parcel. Real prizes and jobs don't ask for fees."),
     ("prize", 0.6,
-     r"\b(congratulations|you have won|you('ve| have) been selected|winner|lucky draw|jackpot|free (iphone|gift|diamonds|robux))\b",
+     r"\b(congratulations|you have won|you('ve| have) been selected|winner|lucky draw|jackpot|free (iphone|gift|diamonds|robux)"
+     r"|(was|been|is) awarded|selected to (receive|win)|claim (your |the )?(prize|reward|cash))\b",
      "It says you won something you never entered. That's a classic way to hook people."),
     ("threat", 0.7,
-     r"\b(blocked|suspended|disconnected|deactivated|deleted|cut|arrest|legal action|police|illegal)\b",
+     # Needs something of yours being blocked/cut, not just the word: real chats
+     # say "hair cut" and "blocked by politicians" (found on real 2012 messages).
+     r"\b(account|card|sim|number|connection|power|electricity|kyc|service|pan|aadhaar|wallet|upi|netbanking|profile|id)\b"
+     r".{0,50}\b(blocked|suspended|disconnected|deactivated|deleted|cut|frozen|terminated|closed)\b"
+     r"|\b(arrest(ed)?|legal action|court case|fir)\b",
      "It threatens that something bad will happen (account blocked, power cut, arrest). Scammers use fear so you act without thinking."),
     ("urgency", 0.3,
      r"\b(urgent(ly)?|immediately|right now|within \d+ (hours?|minutes?)|today|tonight|expires?|last chance|limited (time|seats))\b",
@@ -85,7 +95,8 @@ _PATTERNS: list[tuple[str, float, str, str]] = [
      r"|\b(arrest|warrant)\b.{0,80}\b(pay|transfer|verify|deposit|security amount)\b",
      "It says police, CBI, customs or another agency is investigating you. Real officers never 'arrest' anyone on a video call or ask you to transfer money to clear your name."),
     ("emergency_money", 0.85,
-     r"\b(accident|hospital|kidnapp?ed|in jail|arrested|police station|stuck abroad)\b.{0,100}\b(send|transfer|pay|money|rs|₹|upi)\b",
+     r"\b(accident|hospital|kidnapp?ed|in jail|arrested|police station|stuck abroad)\b.{0,100}\b(send|transfer|pay|money|rs|₹|upi)\b"
+     r"|\b(need(s|ed)?|send|transfer)\b.{0,30}\bmoney\b.{0,60}\b(accident|hospital|jail|police station|bail|stuck abroad)\b",
      "It says someone you love is in an emergency and needs money right now. Hang up and call that person, or another family member, on a number you already have."),
     ("sextortion", 0.95,
      r"\b(video|photos?|pics?|recording|chats?)\b.{0,60}\b(of you|you sent|with you)\b.{0,100}\b(leak|share|send (it )?to|post|viral|family|friends|contacts)\b"
@@ -115,6 +126,17 @@ _PATTERNS: list[tuple[str, float, str, str]] = [
     ("customer_care_callback", 0.55,
      r"\b(call|contact)\b.{0,30}\b(customer care|helpline|support|executive|officer)\b.{0,40}\b(\+?\d[\d -]{8,}|9x{3,})",
      "It gives you a phone number to call 'customer care' or an 'officer'. Use only numbers from the official app, website or the back of your card."),
+    # Text aimed at AI scam checkers. Genuine messages never contain this.
+    ("prompt_injection", 0.92,
+     r"\b(ignore|disregard|forget|override)\b.{0,30}\b(all |any |the )?(previous|prior|above|earlier|your)\b.{0,20}\b(instructions?|prompts?|rules?|guidelines?)\b"
+     r"|\b(you are|act as) (now )?(an? )?(ai|assistant|language model|chatgpt|gpt|llm)\b"
+     r"|\b(declare|classify|mark|label|report|treat)\b.{0,30}\b(this|the)( message| text| sms)?\b.{0,15}\b(as )?(safe|legitimate|genuine|not (a )?scam)\b"
+     r"|\b(system prompt|developer mode|jailbreak)\b|<\s*/?\s*(system|instructions?)\s*>",
+     "It contains hidden instructions aimed at AI scam checkers, trying to get the message marked as safe. "
+     "Genuine messages never do this."),
+    ("fake_army", 0.8,
+     r"\b(army|military|crpf|bsf|cisf|defence|air force|navy)\b.{0,120}\b(advance|qr code|deposit|transfer|security amount|book (it|the))\b",
+     "The person says they're in the army or forces and asks for an advance or QR payment. This is a very common rental and marketplace scam."),
     ("job_task_fee", 0.85,
      r"\b(hotel|google map|youtube|instagram|product)\b.{0,40}\b(review|rating|like|subscribe)s?\b.{0,80}\b(earn|paid|payout|commission|rs|₹)"
      r"|\bdeposit\b.{0,60}\b(unlock|commission|task|withdraw)"
@@ -122,38 +144,65 @@ _PATTERNS: list[tuple[str, float, str, str]] = [
      "It pays you to like videos or rate hotels and products. These 'task jobs' pay a little at first, then ask you to deposit money and keep it."),
 ]
 
+_WHITESPACE = re.compile(r"\s+")
+_SAFETY_NOTICE = re.compile(r"\b(do not|don'?t|never) share\b", re.I)
+_DELIVERY_OTP = re.compile(r"\b(delivery|courier) (agent|partner|executive|person|boy)\b.{0,60}"
+                           r"\b(when|once|at the time) (you )?(receive|get|collect)", re.I)
 _COMPILED = [(i, w, re.compile(p, re.I | re.S), r) for i, w, p, r in _PATTERNS]
 
 
-def find_signals(text: str) -> list[Signal]:
+_SENTENCE_END = re.compile(r"[.!?](?=\s|$)|\n")
+
+
+def _sentence(text: str, start: int, end: int) -> str:
+    bounds = [m.start() for m in _SENTENCE_END.finditer(text)]
+    left = max([b for b in bounds if b < start], default=-1)
+    right = min([b for b in bounds if b >= end], default=len(text))
+    return text[left + 1:right].strip(" ,;:-")
+
+
+def _phrase(text: str, start: int, end: int, limit: int = 110) -> str:
+    """The words around a match, so the quote makes sense on its own:
+    the whole sentence if it's short, otherwise a window around the match."""
+    # A full stop only ends a sentence before a space, so links and UPI IDs stay whole.
+    bounds = [m.start() for m in _SENTENCE_END.finditer(text)]
+    left = max([b for b in bounds if b < start], default=-1)
+    right = min([b for b in bounds if b >= end], default=len(text))
+    sentence = text[left + 1:right].strip(" ,;:-")
+    if len(sentence) <= limit:
+        return sentence
+    a = max(left + 1, start - 30)
+    b = min(right, max(end, a + 40) + 30)
+    window = text[a:b]
+    if a > left + 1:
+        window = "…" + window.split(" ", 1)[-1]
+    if b < right:
+        window = window.rsplit(" ", 1)[0] + "…"
+    return window.strip(" ,;:-")
+
+
+def find_signals(text: str, online: bool = False) -> list[Signal]:
     """Return every red flag found in `text`, strongest first."""
-    text = re.sub(r"\s+", " ", text)  # photos and pasted chats break lines mid-sentence
+    text = _WHITESPACE.sub(" ", text)  # photos and pasted chats break lines mid-sentence
     found: list[Signal] = []
-    for sid, weight, rx, reason in _COMPILED:
-        if rx.search(text):
-            found.append(Signal(sid, weight, reason))
+    for sid, strength, rx, reason in _COMPILED:
+        m = rx.search(text)
+        if m:
+            found.append(Signal(sid, strength, reason, _phrase(text, m.start(), m.end()),
+                                _sentence(text, m.start(), m.end())))
 
-    urls = _URL.findall(text)
-    if urls:
-        if _SHORTENER.search(text):
-            found.append(Signal("short_link", 0.6, "It uses a shortened link, which hides where it really goes."))
-        if _BRAND_IN_DOMAIN.search(text):
-            found.append(Signal("fake_brand_link", 0.9, "The link uses a well-known company's name, but it isn't that company's real website."))
-        elif _RISKY_TLD.search(text):
-            found.append(Signal("odd_link", 0.6, "The link goes to an unusual website, not an official one."))
-        else:
-            found.append(Signal("link", 0.25, "It contains a link. Only open links you were expecting."))
+    for f in check_links(text, online):
+        found.append(Signal(f.id, f.strength, f.reason, f.phrase))
 
-    # A safety notice ("do not share your OTP") is a sign of a real message.
-    if re.search(r"\b(do not|don'?t|never) share\b", text, re.I):
+    # Rules that only matter because of *where* a link goes are dropped when
+    # every link is an official site (a real e-challan or scheme portal).
+    hosts = [host_of(u) for u in find_links(text)]
+    if hosts and all(is_official(h) for h in hosts):
+        found = [s for s in found if s.id not in LINK_DEPENDENT]
+
+    # A safety notice ("do not share your OTP") is a sign of a real message,
+    # and so is a delivery OTP meant for the person handing over your parcel.
+    if _SAFETY_NOTICE.search(text) or _DELIVERY_OTP.search(text):
         found = [s for s in found if s.id != "asks_secret"]
 
-    return sorted(found, key=lambda s: s.weight, reverse=True)
-
-
-def rule_score(signals: list[Signal]) -> float:
-    """Combine signals into a 0-1 score (noisy-OR, so several weak flags add up)."""
-    p_safe = 1.0
-    for s in signals:
-        p_safe *= 1.0 - s.weight
-    return 1.0 - p_safe
+    return sorted(found, key=lambda s: s.strength, reverse=True)

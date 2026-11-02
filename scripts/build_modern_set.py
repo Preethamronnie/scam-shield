@@ -79,6 +79,14 @@ ROWS = [
     ("scam", "voice_clone", "I got a call from my daughter's number, she was crying and said she needed money to get out of a police station."),
     ("scam", "matrimony", "I liked your matrimony profile. I am a doctor in the UK. I am sending you gifts, but you have to pay the customs charges first."),
     ("scam", "olx", "I am interested in buying your sofa on OLX. I am in the army, I will send payment via QR code, just scan it and enter your PIN."),
+    # --- added: scams that copy the format of genuine OTP alerts -------------
+    ("scam", "otp_mimic", "Your OTP is 482190. Our executive will call you shortly, please share this OTP with him to cancel your order refund."),
+    ("scam", "otp_mimic", "Amazon: a code has been sent to your phone. Reply with the code to confirm your Rs 15,000 refund."),
+    ("scam", "otp_mimic", "Dear user, your account will be debited Rs 9,999. To cancel, forward the 6 digit code you received to 9XXXXXXXX5."),
+    ("scam", "brand_mismatch", "SBI: Your YONO account is locked. Re-verify your PAN at http://yono-verify.in/login"),
+    ("scam", "brand_mismatch", "India Post: your parcel is waiting at the warehouse. Update your address: https://tracking-ip.online/in"),
+    ("scam", "lookalike", "Flipkart Big Billion offer! iPhone at Rs 999 only for first 100 customers: http://flipkrt-sale.in"),
+    ("scam", "lookalike", "Your Amazon Prime has been suspended. Renew within 24 hrs: https://amaz0n-prime-renew.com"),
     # --- legitimate look-alikes ------------------------------------------
     ("safe", "otp", "123456 is your OTP for login to your bank account. Do not share it with anyone. Bank staff will never ask for your OTP."),
     ("safe", "otp", "Your verification code is 482915. It expires in 10 minutes. If you did not request this, ignore this message."),
@@ -133,6 +141,21 @@ ROWS = [
     ("safe", "govt", "Your passport application has been granted and will be dispatched soon."),
     ("safe", "friends", "Hey, sorry I missed your call, was in a meeting. What's up?"),
     ("safe", "friends", "Hi! Is this Kavya's number? This is Neha from the dance class, got it from the group."),
+    ("safe", "official_link", "Your e-challan of Rs 500 has been issued for overspeeding. Pay online at https://echallan.parivahan.gov.in"),
+    ("safe", "official_link", "Your speed post article EV123456789IN has been delivered. Track at https://www.indiapost.gov.in"),
+    ("safe", "official_link", "Your Amazon order has shipped. Track your package: https://amazon.in/your-orders"),
+    ("safe", "official_link", "SBI: Your account statement is ready. Log in at https://www.onlinesbi.sbi to view it."),
+    ("safe", "official_link", "Your income tax refund of Rs 4,210 has been processed. Check status on https://www.incometax.gov.in"),
+    ("safe", "official_link", "Your Flipkart order will be delivered today. Track at https://www.flipkart.com/account/orders"),
+    # --- added: more genuine OTP and transaction alerts (trust-critical) -----
+    ("safe", "otp", "OTP for your HDFC Bank credit card transaction of Rs 2,499.00 at AMAZON is 739204. Valid for 5 mins. Do not share this OTP with anyone."),
+    ("safe", "otp", "582913 is the OTP to verify your mobile number on Swiggy. Valid for 10 minutes."),
+    ("safe", "otp", "Your Amazon delivery OTP is 4417. Share it with the delivery agent only when you receive your package."),
+    ("safe", "otp", "Dear customer, 908172 is your OTP for UPI registration. Never share your OTP or UPI PIN with anyone. -SBI"),
+    ("safe", "otp", "Use 3381 as your login code for Instagram. Don't share it."),
+    ("safe", "otp", "Your Aadhaar OTP for authentication is 662910. It is valid for 10 minutes. UIDAI never asks for OTP over call."),
+    ("safe", "bank", "INR 15,000.00 debited from A/c XX7781 on 01-Nov via NEFT to RENT PAYMENT. Avl Bal INR 32,410.55."),
+    ("safe", "bank", "Your EMI of Rs 4,250 for loan account XX9921 is due on 05-Nov. Please keep sufficient balance in your account."),
 ]
 
 if __name__ == "__main__":

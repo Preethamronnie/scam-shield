@@ -1,0 +1,18 @@
+{
+  "model": "TF-IDF (word 1-2 grams + char 3-5 grams) + logistic regression",
+  "pipeline_steps": [
+    "normalize",
+    "features",
+    "clf"
+  ],
+  "scikit_learn_version": "1.9.0",
+  "created": "2026-11-02",
+  "sha256": "c834e9ed3f83aed69761eb6b4a4fcd41b60d0d28428106cb3f73ceb91e1157a3",
+  "training_data": {
+    "sms_spam_collection": 5572,
+    "modern_hand_written": 139,
+    "reviewed_feedback": 0,
+    "modern_weight": 5.0
+  },
+  "intended_use": "One piece of corroborating evidence inside Scam Shield. Output is uncalibrated; never show it to users as a probability."
+}

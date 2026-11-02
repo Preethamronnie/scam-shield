@@ -1,0 +1,122 @@
+[
+ {
+  "label": "scam",
+  "id": "pig_butchering",
+  "text": "Priya: Hi, is this Ananya?\nYou: No, wrong number\nPriya: Oh sorry! You seem nice though. Where are you from?\nYou: Bangalore\nPriya: I work in fashion in Singapore. My uncle is a crypto mentor, he helped me earn 40% profit last week\nPriya: You can join our VIP trading group too. Just deposit Rs 10,000 to start"
+ },
+ {
+  "label": "scam",
+  "id": "romance_customs",
+  "text": "David: Good morning dear, how are you today?\nYou: I'm fine\nDavid: I work as a doctor in the UK. I feel we have a special connection\nDavid: I have sent you a gift parcel with gold and an iPhone\nDavid: The customs office says you must pay Rs 35,000 clearance charge to release it. Please pay today"
+ },
+ {
+  "label": "scam",
+  "id": "task_job",
+  "text": "Riya HR: Hello, are you looking for part time work? Nice to meet you\nYou: Maybe, what is it?\nRiya HR: Simple tasks, like YouTube videos and earn Rs 50 each. Daily payout\nYou: OK I did 3 tasks\nRiya HR: Great! Now this is a bonus task. Deposit Rs 5,000 to unlock your commission"
+ },
+ {
+  "label": "scam",
+  "id": "army_buyer",
+  "text": "Vikram: Is the sofa still available?\nYou: Yes\nVikram: I am in the army, posted at the airport. I will buy it, no need to see\nVikram: I will send payment by QR code. Just scan it and enter your PIN to receive the money"
+ },
+ {
+  "label": "scam",
+  "id": "fake_customer_care",
+  "text": "Amit: Hello sir, I am from Amazon customer care. Your refund of Rs 4,999 is pending.\nYou: OK\nAmit: Please share the OTP you received to process the refund\nYou: No, I'm not sharing that\nAmit: Sir it is urgent, refund will expire today. Just tell me the OTP"
+ },
+ {
+  "label": "scam",
+  "id": "hi_mum",
+  "text": "Unknown: Hi Mum, it's me, I dropped my phone. This is my new number\nMe: Oh no! Are you ok?\nUnknown: Yes but I can't talk right now\nUnknown: I need to pay a bill urgently and my bank app isn't working. Can you send Rs 18,000 to this UPI ID? riya.pay@ybl"
+ },
+ {
+  "label": "scam",
+  "id": "digital_arrest",
+  "text": "FedEx Support: Your parcel to Taiwan was stopped. It contains drugs and fake passports.\nYou: That's not mine\nFedEx Support: I am transferring your call to Mumbai Cyber Crime. Stay on the video call\nInspector Sharma: A case is registered against you for money laundering. You are under digital arrest. Do not tell your family\nInspector Sharma: Transfer your savings to the RBI verification account to prove your innocence"
+ },
+ {
+  "label": "scam",
+  "id": "electricity_apk",
+  "text": "Electricity Office: Dear consumer, your last month bill is not updated\nYou: I paid it\nElectricity Office: Your power connection will be disconnected tonight at 9:30pm\nElectricity Office: To update, download the app from this link: bill-update.apk"
+ },
+ {
+  "label": "scam",
+  "id": "investment_group",
+  "text": "Kiran: Hey! Long time. Added you to a stock tips group, it's really good\nYou: Thanks, what is it?\nKiran: Our professor gives IPO allotment tips. Guaranteed returns, 300% in a month\nKiran: To withdraw profit you just pay the 10% tax first. Download our institutional trading app"
+ },
+ {
+  "label": "scam",
+  "id": "sextortion",
+  "text": "Sonia: Hi, nice to chat with you. Are you single?\nYou: Haha yes\nSonia: Let's do a video call\nSonia: I have recorded the video call with you. Pay Rs 25,000 or I will send the video to all your family and friends"
+ },
+ {
+  "label": "scam",
+  "id": "pig_butchering_subtle",
+  "text": "Meera: Hello, is this Dr. Gupta's clinic?\nYou: No, wrong number\nMeera: So sorry! You seem kind. I live in Dubai, what do you do?\nYou: I'm an engineer\nMeera: Nice! My mentor taught me crypto trading, I made 40% profit last month on the app\nMeera: Shall I add you to the group? You can see the results yourself first"
+ },
+ {
+  "label": "scam",
+  "id": "hi_mum_subtle",
+  "text": "Unknown: Hi Dad, my phone broke so this is my new number. Please save it\nMe: Ok beta\nUnknown: Can you send Rs 25,000 for my college fees? The office closes today\nMe: Why so sudden?\nUnknown: Please Dad, I'll explain everything later. Can you do it now?"
+ },
+ {
+  "label": "scam",
+  "id": "qr_refund_subtle",
+  "text": "Ravi: Hello, I sent you Rs 5,000 by mistake on PhonePe. Please return it\nYou: I didn't get anything\nRavi: I am sending a QR code, scan it and enter your PIN to receive the refund back\nRavi: Did you do it? Please, it was my mother's hospital money"
+ },
+ {
+  "label": "scam",
+  "id": "job_subtle",
+  "text": "Anjali HR: Hi, nice to meet you. I'm Anjali, a recruiter. We have work from home openings\nYou: What is the salary?\nAnjali HR: You earn Rs 3,000 daily by rating hotels on Google Maps. Registration fee is Rs 1,999\nAnjali HR: Let me know by today, only 5 seats left"
+ },
+ {
+  "label": "safe",
+  "id": "old_friend",
+  "text": "Arjun: Hi, is this Rahul? This is Arjun from school, got your number from Vinay\nYou: Arjun! How are you?\nArjun: Good! I'm in Bangalore now, working in a startup\nArjun: Let's meet for coffee this weekend? Saturday at 5 near MG Road"
+ },
+ {
+  "label": "safe",
+  "id": "dance_class",
+  "text": "Neha: Hi! Is this Kavya's number?\nYou: Yes, who is this?\nNeha: Neha from the dance class, got it from the group\nYou: Oh hi Neha!\nNeha: Are you coming to practice on Saturday? It's at 10"
+ },
+ {
+  "label": "safe",
+  "id": "family_books",
+  "text": "Mom: Did you reach the hostel?\nMe: Yes just now\nMom: Good. I've sent you Rs 2,000 for the books, tell me if you got it\nMe: Got it, thanks mom"
+ },
+ {
+  "label": "safe",
+  "id": "split_bill",
+  "text": "Sameer: Dinner was fun yesterday!\nYou: Yes! What was my share?\nSameer: Rs 450 each. Send it on GPay whenever you're free, no hurry"
+ },
+ {
+  "label": "safe",
+  "id": "landlord",
+  "text": "Mr Rao: Good morning. Reminder that rent for November is due on the 5th\nYou: Sure, same account as before?\nMr Rao: Yes, same UPI ID as always. Please send the receipt once paid"
+ },
+ {
+  "label": "safe",
+  "id": "colleague_deadline",
+  "text": "Divya: Hey, the client report is due today\nYou: I'm on it\nDivya: Thanks! Please send it to me by 5 so I can review before it goes out. It's urgent"
+ },
+ {
+  "label": "safe",
+  "id": "delivery",
+  "text": "Delivery Partner: Hello, I am outside with your Flipkart order. Which floor?\nYou: 3rd floor, flat 302\nDelivery Partner: Coming up. Please keep the delivery OTP ready, I will ask for it when you receive the package"
+ },
+ {
+  "label": "safe",
+  "id": "bank_support",
+  "text": "HDFC Bank: Thank you for contacting HDFC Bank. Your complaint number is 4521.\nYou: When will my card arrive?\nHDFC Bank: Your card was dispatched on 2 Nov and should reach you in 5 working days. We will never ask for your OTP or PIN"
+ },
+ {
+  "label": "safe",
+  "id": "school_pickup",
+  "text": "Dad: Can you pick up Anu from school today? I'm stuck in a meeting\nYou: What time?\nDad: At 3:30, please be on time. My phone battery is low so I may not reply"
+ },
+ {
+  "label": "safe",
+  "id": "olx_genuine_buyer",
+  "text": "Pooja: Hi, is the study table still available?\nYou: Yes\nPooja: Can I come see it tomorrow evening? I'll pay cash when I pick it up"
+ }
+]

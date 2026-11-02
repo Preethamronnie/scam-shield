@@ -5,3 +5,4 @@ __pycache__/
 .pytest_cache/
 data/sms.tsv
 .venv-1/
+data/feedback/

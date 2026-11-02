@@ -27,3 +27,12 @@ def load_modern() -> pd.DataFrame:
     df = pd.read_csv(path)
     return pd.DataFrame({"text": df["text"], "y": (df["label"] == "scam").astype(int),
                          "source": "modern", "category": df["category"]})
+
+
+def load_reviewed() -> pd.DataFrame:
+    """Human-reviewed feedback examples (scripts/review_feedback.py). Never raw feedback."""
+    path = DATA / "reviewed_examples.csv"
+    if not path.exists():
+        return pd.DataFrame({"text": pd.Series(dtype=str), "y": pd.Series(dtype=int), "source": pd.Series(dtype=str)})
+    df = pd.read_csv(path)
+    return pd.DataFrame({"text": df["text"], "y": (df["label"] == "scam").astype(int), "source": "reviewed"})
