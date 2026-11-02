@@ -1,0 +1,65 @@
+label,category,text
+scam,bank_kyc,Dear customer your SBI account will be blocked today. Update your KYC immediately by clicking http://sbi-kyc-update.example.xyz
+scam,bank_kyc,Your PAN card is not linked. Your bank account will be suspended within 24 hours. Click bit.ly/pan-link-now to update.
+scam,bank_kyc,ALERT: Your Netbanking access is restricted. Verify your details at http://secure-hdfc.example.top to avoid permanent block.
+scam,bank_kyc,"Dear user, your KYC has expired. Please call 9XXXXXXXX1 and share the OTP you receive to reactivate your account."
+scam,otp,"Hi, I accidentally sent my verification code to your number. Can you please send me the 6 digit code? It's urgent."
+scam,otp,"This is from the bank fraud team. To stop a suspicious transaction of Rs 45,000 please tell us the OTP sent to your phone."
+scam,delivery,Your parcel could not be delivered due to incomplete address. Pay Rs 25 redelivery fee here: http://indiapost-redeliver.example.click
+scam,delivery,USPS: Your package is on hold. Confirm your shipping details within 12 hours: https://usps-track.example.info
+scam,delivery,"Your courier is held at customs. Pay the clearance charge of Rs 1,850 via this link to release it today."
+scam,job,Part time job! Earn Rs 3000-8000 daily by liking YouTube videos. No experience needed. WhatsApp HR on 9XXXXXXXX2
+scam,job,"Congratulations! You are selected for a work from home data entry job. Pay Rs 1,999 registration fee to start."
+scam,job,"Hello, I am Priya from Amazon HR. We offer online tasks with daily payout. Reply YES to join our Telegram group."
+scam,lottery,"Congratulations! Your number has won Rs 25,00,000 in the KBC lucky draw. To claim, pay processing fee of Rs 12,500."
+scam,lottery,You have won an iPhone 16 in our anniversary giveaway! Claim now before it expires: http://free-gift.example.win
+scam,lottery,"WINNER!! Your email has been selected for a $500,000 prize. Send your full name, address and bank details to claim."
+scam,family,"Hi Mum, I dropped my phone in the toilet, this is my new number. Can you send me money urgently? I'll explain later."
+scam,family,"Dad it's me, I'm in trouble and can't talk. Please transfer Rs 20,000 to this UPI ID right now, don't tell anyone."
+scam,upi,"You have received Rs 5,000. To accept the money enter your UPI PIN on the request sent to you."
+scam,upi,Electricity bill unpaid. Your power will be disconnected tonight at 9:30pm. Call officer 9XXXXXXXX3 immediately.
+scam,upi,Your electricity connection will be cut today due to non-update of last month bill. Download the app from this link to pay.
+scam,authority,This is a call from the Customs department. A parcel in your name contains illegal items. Press 1 to speak to the officer or face arrest.
+scam,authority,"Income Tax Department: You are eligible for a refund of Rs 15,490. Submit your card details at http://itr-refund.example.site"
+scam,authority,Your mobile number will be disconnected in 2 hours by TRAI due to illegal activity. Press 9 to speak to an executive.
+scam,investment,Join our VIP stock tips group and earn 300% returns guaranteed in 1 month. Limited seats! WhatsApp now.
+scam,investment,"Invest Rs 10,000 in crypto today and get Rs 1,00,000 in 7 days. 100% safe and guaranteed profit."
+scam,tech_support,Microsoft Security Alert: your computer is infected with a virus. Call our toll free number and install AnyDesk so we can fix it.
+scam,tech_support,"Your account has been hacked. To secure it, download the QuickSupport app and share the code shown on screen with our agent."
+scam,romance,"Hi dear, I am a US army doctor working in Syria. I want to send you a gift parcel but you need to pay the delivery charge."
+scam,gaming,"Get 10,000 free diamonds for Free Fire! Just log in with your game account at http://free-diamonds.example.fun"
+scam,gaming,Free Robux generator! Enter your username and password to get unlimited Robux instantly.
+scam,social,Your Instagram account will be deleted for copyright violation. Appeal within 24 hours: http://insta-appeal.example.co
+scam,social,"Someone posted an embarrassing video of you, is this you?? http://vid-watch.example.link"
+scam,rent,"I am in the army and posted outside the city. I can rent you the flat but first send Rs 10,000 advance through UPI to book it."
+scam,loan,Pre-approved instant loan of Rs 5 lakh at 0% interest. No documents needed. Pay Rs 999 processing fee to get it in 10 minutes.
+scam,pension,"Dear pensioner, your life certificate is pending. Your pension will stop. Share your Aadhaar number and OTP to update."
+scam,refund,"Your Amazon order refund of Rs 2,349 is pending. Scan the QR code we send you to receive the money."
+safe,otp,123456 is your OTP for login to your bank account. Do not share it with anyone. Bank staff will never ask for your OTP.
+safe,otp,"Your verification code is 482915. It expires in 10 minutes. If you did not request this, ignore this message."
+safe,bank,"Rs 1,250.00 debited from your A/c XX4521 on 12-Oct for UPI payment to SWIGGY. Not you? Call the number on the back of your card."
+safe,bank,Your account statement for September is ready. Log in to the official app to view it.
+safe,bank,"Salary of Rs 42,000 credited to your account XX1187 on 01-Oct. Available balance Rs 58,320."
+safe,delivery,Your order #40551 has been shipped and will arrive by Thursday. Track it in the app.
+safe,delivery,Out for delivery: your package will arrive today between 2pm and 6pm. The delivery partner may call you.
+safe,delivery,Your food order is on the way. Your delivery partner Ramesh is 5 minutes away.
+safe,job,"Hi Preetham, thanks for applying for the Data Analyst role. Your interview is scheduled for Monday at 11am on Google Meet."
+safe,job,Your application has been received. Our recruitment team will contact you if your profile is shortlisted.
+safe,family,"Hi beta, reached home safely. Call me when you are free tonight."
+safe,family,"Mum, can you pick me up from tuition at 6? My phone battery is low."
+safe,family,"Dinner is at 8, grandpa is coming too. Please bring curd on your way back."
+safe,school,"Dear parents, the school will remain closed on Friday due to elections. Classes resume on Monday."
+safe,school,Reminder: Parent-teacher meeting on Saturday 10am in the school auditorium.
+safe,utility,"Your electricity bill of Rs 1,140 for September is generated. Due date 20-Oct. Pay via the official app or website."
+safe,utility,Thank you for your payment of Rs 599 towards your mobile bill. Your next bill date is 5 Nov.
+safe,health,Your appointment with Dr. Sharma is confirmed for 15 Oct at 4:30 PM. Please arrive 10 minutes early.
+safe,health,Reminder: your lab test report is ready. You can collect it from the reception or view it in the hospital app.
+safe,friends,Are we still on for cricket tomorrow morning? Bring the bat.
+safe,friends,Happy birthday! Hope you have an amazing year ahead.
+safe,friends,"Sent you the notes from today's lecture on email, check when you get time."
+safe,work,Team meeting moved to 3pm today. Same meeting link as usual.
+safe,work,Please review the report I shared before Friday and add your comments.
+safe,service,"Your cab is arriving in 3 minutes. White Swift, KA 01 AB 1234."
+safe,service,Your gas cylinder booking is confirmed. Delivery expected within 2 days.
+safe,gaming,"Your weekly screen time report is ready: 9 hours, down 12% from last week."
+safe,social,Rahul tagged you in a photo. Open the app to see it.
