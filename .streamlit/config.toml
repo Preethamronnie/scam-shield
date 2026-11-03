@@ -12,5 +12,6 @@ primaryColor = "#5b8def"
 gatherUsageStats = false
 
 [server]
-# Uploads larger than this are refused before they reach the app (see scamshield/safety.py).
-maxUploadSize = 10
+# Uploads larger than this (MB) are refused before reaching the app. Per-type limits
+# are tighter (scamshield/inspectors.py: images 8, PDFs 10, emails 10, APKs 25).
+maxUploadSize = 25

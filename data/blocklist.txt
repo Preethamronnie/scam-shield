@@ -1,0 +1,3 @@
+# Domains confirmed as scams, one per line (registrable domain, e.g. sbi-kyc-verify.top).
+# Add only domains confirmed by a human reviewer (for example from scripts/review_feedback.py),
+# never automatically from unreviewed user reports. Checked offline for every link.

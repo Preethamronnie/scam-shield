@@ -50,6 +50,11 @@ class ConversationAnalysis:
     user: str | None = None
 
     @property
+    def span_days(self) -> int | None:
+        days = [t.day for t in self.turns if t.day]
+        return (max(days) - min(days)).days if len(days) >= 2 else None
+
+    @property
     def first_suspicious(self) -> int | None:
         """Index of the first message with a clear red flag."""
         return next((f.index for f in self.per_turn if f.flagged), None)
@@ -58,11 +63,12 @@ class ConversationAnalysis:
         return {
             "first_suspicious_message": None if self.first_suspicious is None else self.first_suspicious + 1,
             "timeline": [
-                {"message_number": f.index + 1, "from": f.speaker, "text": t.text,
+                {"message_number": f.index + 1, "from": f.speaker, "text": t.text, "when": t.when,
                  "is_user": bool(self.user) and f.speaker == self.user,
                  "red_flags": list(dict.fromkeys(s.reason for s in f.signals if s.strength >= 0.5))}
                 for f, t in zip(self.per_turn, self.turns)],
             "messages": len(self.turns),
+            "time_span_days": self.span_days,
             "people": sorted({t.speaker for t in self.turns}),
             "user_identified_as": self.user,
             "conversation_findings": self.findings,
@@ -101,8 +107,11 @@ def analyze_conversation(turns: list[Turn], online: bool = False) -> Conversatio
             signals.append(Signal(
                 "slow_build", 0.85,
                 "The chat starts friendly and only later turns to money, codes or investments. "
-                "Scammers build trust first so the request feels normal.", s.phrase))
-            findings.append(f"Friendly chat for {first_serious.index} messages, then {first_serious.speaker} "
+                "Scammers build trust first so the request feels normal.", s.phrase, origin="context"))
+            first_day, ask_day = turns[0].day, turns[first_serious.index].day
+            span = (ask_day - first_day).days if first_day and ask_day else None
+            over = f" over {span} days" if span and span > 0 else ""
+            findings.append(f"Friendly chat for {first_serious.index} messages{over}, then {first_serious.speaker} "
                             f"turned to money or personal details in message {first_serious.index + 1}.")
 
     # 2. Repeated pressure: urgency or threats in two or more messages from the same person.
@@ -117,7 +126,7 @@ def analyze_conversation(turns: list[Turn], online: bool = False) -> Conversatio
         if count >= 2 and speaker in askers:
             signals.append(Signal("repeated_pressure", 0.75,
                                   f"{speaker} keeps pushing you to hurry or threatening consequences, "
-                                  "message after message.", ""))
+                                  "message after message.", "", origin="context"))
             findings.append(f"{speaker} applied pressure in {count} separate messages.")
             break
 
@@ -130,7 +139,7 @@ def analyze_conversation(turns: list[Turn], online: bool = False) -> Conversatio
             if later:
                 signals.append(Signal("ignores_refusal", 0.7,
                                       f"After {t.speaker} said no, {later[0].speaker} kept asking. "
-                                      "Genuine companies and friends accept a no.", ""))
+                                      "Genuine companies and friends accept a no.", "", origin="context"))
                 findings.append(f"{later[0].speaker} kept asking after {t.speaker} refused "
                                 f"(message {i + 1}).")
                 break

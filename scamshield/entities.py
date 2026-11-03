@@ -14,12 +14,28 @@ _DATE = re.compile(r"\d{1,2}[/-]\d{1,2}[/-]\d{2,4}")
 
 @dataclass(frozen=True)
 class Phone:
-    number: str
+    number: str          # as written in the message
     kind: str
     note: str
+    normalized: str = ""  # one standard form, e.g. +919876543210
 
     def to_dict(self) -> dict:
-        return {"number": self.number, "type": self.kind, "note": self.note}
+        return {"number": self.number, "normalized": self.normalized, "type": self.kind, "note": self.note}
+
+
+def normalize_phone(raw: str) -> str:
+    """One standard form for the same number written different ways:
+    '+91 98765 43210', '098765-43210' and '9876543210' all become '+919876543210'."""
+    if "x" in raw.lower():
+        return raw.upper().replace(" ", "")
+    digits = _NON_DIGIT.sub("", raw)
+    if len(digits) == 12 and digits.startswith("91") and digits[2] in "6789":
+        return "+" + digits
+    if len(digits) == 11 and digits.startswith("0") and digits[1] in "6789":
+        return "+91" + digits[1:]
+    if len(digits) == 10 and digits[0] in "6789":
+        return "+91" + digits
+    return ("+" if raw.strip().startswith("+") else "") + digits
 
 
 def _classify(raw: str) -> tuple[str, str] | None:
@@ -33,7 +49,7 @@ def _classify(raw: str) -> tuple[str, str] | None:
         return "toll-free (India)", "Toll-free numbers can be faked too; check it on the official website."
     if digits.startswith("91") and len(digits) == 12 and digits[2] in "6789":
         return "mobile (India)", "A personal mobile number. Real banks and agencies don't contact you from these."
-    if len(digits) == 10 and digits[0] in "6789":
+    if len(digits) in (10, 11) and digits.lstrip("0")[:1] in "6789" and len(digits.lstrip("0")) == 10:
         return "mobile (India)", "A personal mobile number. Real banks and agencies don't contact you from these."
     if digits.startswith(("09", "0871", "0870", "0844")) and len(digits) == 11:
         return "premium-rate (UK)", "Calling this number can cost a lot per minute."
@@ -51,13 +67,13 @@ def find_phones(text: str) -> list[Phone]:
         # Skip things that are clearly amounts, dates or OTPs.
         if _SHORT_CODE.fullmatch(raw) or _DATE.search(raw):
             continue
-        key = _NON_DIGIT.sub("", raw) or raw.lower()
+        key = normalize_phone(raw)
         if key in seen:
             continue
         cls = _classify(raw)
         if cls:
             seen.add(key)
-            out.append(Phone(raw, *cls))
+            out.append(Phone(raw, *cls, normalized=key))
     return out
 
 
@@ -70,11 +86,12 @@ _EMAIL = re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b")
 
 
 def find_payment_ids(text: str) -> list[str]:
-    return list(dict.fromkeys(m.group(0) for m in _UPI.finditer(text)))
+    """UPI IDs, normalised to lower case (they're not case-sensitive), without duplicates."""
+    return list(dict.fromkeys(m.group(0).lower() for m in _UPI.finditer(text)))
 
 
 def find_emails(text: str) -> list[str]:
-    return list(dict.fromkeys(e for e in _EMAIL.findall(text) if not _UPI.fullmatch(e)))
+    return list(dict.fromkeys(e.lower() for e in _EMAIL.findall(text) if not _UPI.fullmatch(e)))
 
 
 # --- organisations ----------------------------------------------------------------------

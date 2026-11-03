@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from .entities import Phone
 from .links import UrlInfo
 from .preprocess import Language
-from .risk import CAREFUL, LEVEL_POINTS, SAFE, SCAM, SUBTITLE, UNSURE, CategoryEvidence
+from .risk import CAREFUL, CRITICAL, LEVEL_POINTS, SAFE, SCAM, SUBTITLE, UNSURE, CategoryEvidence
 
 # Named scam types, from the rule that detected them. Order = display priority.
 SCAM_TYPES = {
@@ -22,6 +22,11 @@ SCAM_TYPES = {
     "blocklisted_link": "Known phishing or malware link",
     "remote_access": "Remote-access (screen-sharing) scam",
     "apk_file": "Malicious app (APK) scam",
+    "qr_receive_trick": "UPI 'scan this QR to receive money' scam",
+    "pdf_launch": "Malicious document",
+    "pdf_javascript": "Malicious document",
+    "email_risky_attachment": "Dangerous email attachment",
+    "email_sender_spoof": "Email impersonation (phishing)",
     "pin_to_receive": "UPI 'enter PIN to receive money' scam",
     "asks_secret": "OTP / PIN theft",
     "sim_swap": "SIM swap scam",
@@ -91,6 +96,15 @@ class Report:
     model_output: float | None = None  # uncalibrated; for transparency only
     model_words: list[str] = field(default_factory=list)
     analysis: dict = field(default_factory=dict)   # stages run, timings, why escalated
+    attachments: list[dict] = field(default_factory=list)   # files inspected: name, kind, findings
+    intents: list[dict] = field(default_factory=list)        # what the message wants you to do
+    pressure_tactics: list[dict] = field(default_factory=list)  # how it pressures you
+    identity_checks: list[str] = field(default_factory=list)  # claimed identity vs contact details
+    modules: list[dict] = field(default_factory=list)         # which detectors ran, and why
+    chains: list[dict] = field(default_factory=list)          # known scam patterns the evidence matches
+    mitigations: list[str] = field(default_factory=list)      # evidence pointing the other way
+    harm: dict = field(default_factory=dict)                  # how bad it would be: level + what's at stake
+    outcome: dict = field(default_factory=dict)               # headline + main action for this verdict/confidence
 
     @property
     def subtitle(self) -> str:
@@ -109,8 +123,11 @@ class Report:
             "evidence_by_category": [
                 {"category": c.category.name, "risk_level": c.category.level,
                  "evidence_strength": round(c.evidence, 2),
-                 "risk_points": round(LEVEL_POINTS[c.category.level] * c.evidence),
-                 "counts_towards_verdict": c.present,
+                 "reliability_of_source": round(c.reliability, 2),
+                 "risk_points": round(LEVEL_POINTS[c.category.level] * c.evidence * c.reliability)
+                 if c.independent else 0,
+                 "counts_towards_verdict": c.present and c.independent,
+                 "same_evidence_as": c.same_as,
                  "findings": list(dict.fromkeys(s.reason for s in c.signals))}
                 for c in self.categories],
             "suspicious_phrases": self.suspicious_phrases,
@@ -126,6 +143,15 @@ class Report:
             "input_type": self.source,
             "conversation": self.conversation,
             "analysis": self.analysis,
+            "files_inspected": self.attachments,
+            "what_they_want_you_to_do": self.intents,
+            "pressure_tactics": self.pressure_tactics,
+            "identity_checks": self.identity_checks,
+            "detectors": self.modules,
+            "matches_known_scam_pattern": self.chains,
+            "signs_it_may_be_genuine": self.mitigations,
+            "potential_harm": self.harm,
+            "what_this_means": self.outcome,
         }
 
 
@@ -162,23 +188,40 @@ def impersonated(verdict: str, categories: list[CategoryEvidence], urls: list[Ur
     return None
 
 
-def assess_confidence(verdict: str, categories: list[CategoryEvidence], language: Language,
-                      words: int, source: str, model_p: float | None) -> tuple[str, list[str]]:
-    """How sure the system is about its verdict. Separate from the risk score:
-    a message can have a modest risk score and still be confidently judged."""
-    present = [c for c in categories if c.present and c.category.key != "scam_wording"]
-    independent = len(present)
+from .risk import OCR_UNRELIABLE  # noqa: E402  (same threshold as the verdict rule)
+
+
+def assess_confidence(a, language: Language, words: int, source: str, model_p: float | None,
+                      ocr_quality: float | None = None) -> tuple[str, list[str]]:
+    """How much the VERDICT can be trusted. Deliberately separate from the risk
+    score: it depends on the quality of the evidence, not the amount of risk.
+    A message can be high-risk with low confidence (one unreliable sign, a blurry
+    photo, contradicting evidence) or low-risk with low confidence (we couldn't
+    read enough to clear it)."""
+    verdict, cats = a.verdict, a.categories
+    independent = [c for c in cats if c.present and c.independent and c.category.key != "scam_wording"]
     reasons: list[str] = []
+    order = ["Low", "Medium", "High"]
+
+    def down(level: str, steps: int = 1) -> str:
+        return order[max(0, order.index(level) - steps)]
+
     if verdict == UNSURE:
         level = "Low"
         reasons.append("The evidence doesn't support a confident call either way.")
     elif verdict == SCAM:
-        if independent >= 2:
+        top_reliability = max((c.reliability for c in independent), default=0)
+        if len(independent) >= 2:
             level = "High"
-            reasons.append(f"{independent} independent kinds of evidence point the same way.")
+            reasons.append(f"{len(independent)} independent pieces of evidence point the same way.")
+        elif top_reliability >= 0.95:
+            level = "High"
+            reasons.append("It rests on near-certain evidence (a threat database, or what's inside the file itself).")
         else:
             level = "Medium"
             reasons.append("Based on one clear warning sign rather than several.")
+        if a.chains:
+            reasons.append(f"The evidence fits a known scam pattern ({a.chains[0].name.lower()}).")
     elif verdict == CAREFUL:
         level = "Medium" if independent else "Low"
         reasons.append("Some warning signs, but not enough for a firm conclusion." if independent
@@ -190,27 +233,84 @@ def assess_confidence(verdict: str, categories: list[CategoryEvidence], language
         else:
             level = "Medium"
             reasons.append("No scam tactics found, but the message is short or the wording is somewhat ambiguous.")
-    if model_p is not None and verdict == SCAM and model_p < 0.3:
+
+    # Reliability of what the verdict rests on.
+    if independent and verdict in (SCAM, CAREFUL):
+        avg = sum(c.reliability for c in independent) / len(independent)
+        if avg < 0.8:
+            reasons.append("The evidence comes mostly from less reliable checks (such as the partial Hindi phrase "
+                           "list or pressure-tactic cues).")
+            level = down(level)
+    # Contradicting evidence lowers confidence, never the warning itself.
+    if a.mitigations and verdict in (SCAM, CAREFUL):
+        strong_case = len(independent) >= 2 or a.chains or any(
+            c.evidence >= 0.9 and c.category.level == CRITICAL for c in independent)
+        steps = 1 if strong_case else min(2, len(a.mitigations))
+        reasons.append("Some evidence points the other way: " + a.mitigations[0][0].lower() + a.mitigations[0][1:])
+        level = down(level, steps)
+    if model_p is not None and verdict == SCAM and model_p < 0.3 and words >= 12:
         reasons.append("The ML model disagrees: the wording itself looks ordinary.")
-        level = {"High": "Medium", "Medium": "Low"}.get(level, level)
+        level = down(level)
     if model_p is not None and verdict == SAFE and model_p >= 0.75:
         reasons.append("The ML model finds the wording somewhat scam-like.")
         level = "Medium" if level == "High" else level
-    if "photo" in source:
+    if ocr_quality is not None and ocr_quality < OCR_UNRELIABLE:
+        reasons.append(f"The photo was hard to read (text-reading confidence {ocr_quality:.0f}/100), "
+                       "so words may be wrong or missing.")
+        level = "Low"
+    elif "photo" in source:
         reasons.append("The text was read from a photo, so some words may have been misread.")
-        level = {"High": "Medium", "Medium": "Low"}.get(level, level)
-    if language.name.startswith("Hinglish"):
-        reasons.append("The message is partly in romanised Hindi, which the detector understands less well.")
-        level = {"High": "Medium"}.get(level, level)
+        level = down(level)
+    if language.coverage == "partial":
+        reasons.append(f"Only partly covered language ({language.name}): the detector knows common Hindi scam "
+                       "phrases, not the whole language.")
+        level = "Medium" if level == "High" else level
+    elif language.coverage == "none" and verdict != UNSURE:
+        reasons.append(f"The message is in {language.name}; only its English words could be checked.")
+        level = down(level)
     return level, reasons
 
 
+def outcome(verdict: str, confidence: str, harm: dict) -> dict:
+    """What the combination of verdict, confidence and harm means for the user.
+    High risk + high confidence, high risk + low confidence, and 'we can't tell'
+    need different advice, not just different numbers."""
+    severe = harm.get("level") == "Severe"
+    if verdict == SCAM and confidence == "High":
+        o = {"headline": "Very likely a scam.", "action": "Don't reply, click, call or pay. Block the sender."}
+    elif verdict == SCAM and confidence == "Medium":
+        o = {"headline": "Likely a scam.", "action": "Don't act on it. If it claims to be someone you know, contact "
+                                                     "them another way first."}
+    elif verdict == SCAM:
+        o = {"headline": "Strong warning signs, but we're not certain.",
+             "action": "Treat it as a scam until you've checked it yourself, using an official app, website or a "
+                       "number you already have."}
+    elif verdict == CAREFUL:
+        o = {"headline": "Warning signs found." if confidence != "Low" else "Some warning signs, but also signs it "
+                                                                          "may be genuine.",
+             "action": "Don't act on it until you've verified it through an official channel you find yourself."}
+    elif verdict == UNSURE:
+        o = {"headline": "We can't tell from this.", "action": "Don't act yet. See what would help us decide below."}
+    elif confidence == "High":
+        o = {"headline": "No warning signs found.", "action": "It looks like an ordinary message. If it later asks for "
+                                                             "money, codes or personal details, check again."}
+    else:
+        o = {"headline": "No warning signs found, but we couldn't check everything.",
+             "action": "Stay careful: see the confidence note below."}
+    if severe and verdict in (SCAM, CAREFUL, UNSURE):
+        o["action"] += " The potential harm is severe, so be extra careful."
+    return o
+
+
 def missing_information(verdict: str, source: str, words: int, language: Language, urls: list[UrlInfo],
-                        phones: list[Phone], orgs: list[str], text: str, reputation_on: bool) -> list[str]:
+                        phones: list[Phone], orgs: list[str], text: str, reputation_on: bool,
+                        ocr_quality: float | None = None) -> list[str]:
     out: list[str] = []
-    if not language.supported:
-        out.append(f"Most of the text is in {language.name}. Without the AI explanation turned on, only English "
-                   "and romanised Hindi are analysed, so the message couldn't be checked properly.")
+    if ocr_quality is not None and ocr_quality < OCR_UNRELIABLE:
+        out.append("A clearer screenshot (not a photo of a screen), or the message pasted as text. The photo "
+                   "was hard to read, so the result may be incomplete.")
+    if language.coverage_note():
+        out.append(language.coverage_note())
     if words < 6:
         out.append("The message is very short. The full message, or what was said before and after, would help.")
     if not source.startswith("conversation") and verdict in (UNSURE, CAREFUL):

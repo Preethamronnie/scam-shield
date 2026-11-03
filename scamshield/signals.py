@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from .lexicon import COMPILED as LEXICON
 from .links import check_links, find_links, host_of, is_official
 
 LINK_DEPENDENT = {"fine_or_toll", "govt_scheme", "reward_points"}
@@ -21,6 +22,10 @@ class Signal:
     reason: str      # shown to the user
     phrase: str = ""   # short quote of the words that triggered it (may be shortened with …)
     context: str = ""  # the full sentence(s) around the match, for highlighting
+    origin: str = "rule"  # which detector found it: rule, lexicon, url, reputation, identity, payment,
+                          # manipulation, context, file, model (decides how much it's trusted)
+    anchor: str = ""      # the underlying thing it's about (a link, a phone number, a file), so one
+                          # piece of evidence isn't counted twice under different categories
 
 
 
@@ -148,10 +153,14 @@ _WHITESPACE = re.compile(r"\s+")
 _SAFETY_NOTICE = re.compile(r"\b(do not|don'?t|never) share\b", re.I)
 _DELIVERY_OTP = re.compile(r"\b(delivery|courier) (agent|partner|executive|person|boy)\b.{0,60}"
                            r"\b(when|once|at the time) (you )?(receive|get|collect)", re.I)
+# Genuine OTP messages in Hindi: "OTP kisi ko na batayein", "ओटीपी किसी के साथ साझा न करें".
+_HINDI_SAFETY_NOTICE = re.compile(r"(otp|pin|code|ओटीपी|पिन|कोड).{0,40}(kisi|किसी).{0,20}(mat|na|nahi|नहीं|न|मत)"
+                                  r".{0,12}(bata|share|शेयर|साझा|बता)", re.I | re.S)
+_REASONS = {}   # filled below: rule id -> plain-language reason, shared with lexicon.py
 _COMPILED = [(i, w, re.compile(p, re.I | re.S), r) for i, w, p, r in _PATTERNS]
 
 
-_SENTENCE_END = re.compile(r"[.!?](?=\s|$)|\n")
+_SENTENCE_END = re.compile(r"[.!?।](?=\s|$)|\n")   # । is the Hindi full stop
 
 
 def _sentence(text: str, start: int, end: int) -> str:
@@ -181,6 +190,9 @@ def _phrase(text: str, start: int, end: int, limit: int = 110) -> str:
     return window.strip(" ,;:-")
 
 
+_REASONS.update({i: r for i, _w, _p, r in _PATTERNS})
+
+
 def find_signals(text: str, online: bool = False) -> list[Signal]:
     """Return every red flag found in `text`, strongest first."""
     text = _WHITESPACE.sub(" ", text)  # photos and pasted chats break lines mid-sentence
@@ -191,8 +203,23 @@ def find_signals(text: str, online: bool = False) -> list[Signal]:
             found.append(Signal(sid, strength, reason, _phrase(text, m.start(), m.end()),
                                 _sentence(text, m.start(), m.end())))
 
+    # The same tactics written in Hinglish or Hindi (lexicon.py).
+    have = {s.id for s in found}
+    for sid, strength, rx, _lang in LEXICON:
+        if sid in have:
+            continue
+        m = rx.search(text)
+        if m:
+            have.add(sid)
+            found.append(Signal(sid, strength, _REASONS[sid], _phrase(text, m.start(), m.end()),
+                                _sentence(text, m.start(), m.end()), origin="lexicon"))
+
     for f in check_links(text, online):
-        found.append(Signal(f.id, f.strength, f.reason, f.phrase))
+        # Everything about one link shares an anchor; a database or domain-age verdict
+        # about it is a separate, independent source.
+        rep = f.id in ("blocklisted_link", "new_domain")
+        found.append(Signal(f.id, f.strength, f.reason, f.phrase, origin="reputation" if rep else "url",
+                            anchor=("rep:" if rep else "link:") + f.phrase))
 
     # Rules that only matter because of *where* a link goes are dropped when
     # every link is an official site (a real e-challan or scheme portal).
@@ -202,6 +229,8 @@ def find_signals(text: str, online: bool = False) -> list[Signal]:
 
     # A safety notice ("do not share your OTP") is a sign of a real message,
     # and so is a delivery OTP meant for the person handing over your parcel.
+    if _HINDI_SAFETY_NOTICE.search(text):
+        found = [s for s in found if s.id not in ("asks_secret", "secrecy")]
     if _SAFETY_NOTICE.search(text) or _DELIVERY_OTP.search(text):
         found = [s for s in found if s.id != "asks_secret"]
 

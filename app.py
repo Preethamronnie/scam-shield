@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from datetime import date
 from urllib.parse import urlsplit
 
-from scamshield import (circle, complaint, education, emergency, feedback, i18n, ocr, oncall, redirects,
+from scamshield import (circle, complaint, destination, education, emergency, feedback, files, i18n, ocr, oncall,
                         reputation, safety, telemetry)
 from scamshield import explain as llm
 from scamshield import model as ml
@@ -28,7 +28,7 @@ STYLE = {
 }
 LEVEL_COLOR = {CRITICAL: "#b42318", HIGH: "#c4320a", MEDIUM: "#b54708"}
 LINK_STYLE = {"Dangerous": ("#b42318", "#fef3f2", "⛔"), "Suspicious": ("#93370d", "#fffaeb", "⚠️"),
-              "Official website": ("#05603a", "#ecfdf3", "✅"), "No warning signs found": ("#344054", "#f2f4f7", "ℹ️")}
+              "Official website": ("#05603a", "#ecfdf3", "✅"), "Not verified": ("#344054", "#f2f4f7", "❔")}
 INDICATOR_ICON = {"danger": "⛔", "warning": "⚠️", "info": "ℹ️", "good": "✅"}
 
 EXAMPLES = {
@@ -51,15 +51,15 @@ with st.expander(f"⚙️ Language ({lang_now}), text size and view"):
                        help="Show just the answer and what to do. The evidence stays one tap away.")
     st.caption("🌙 **Dark mode** follows your phone's setting automatically. To change it here, tap **⋮** "
                "at the top right of the page → **Settings** → **Theme**.")
-    online_possible = llm.available() or reputation.enabled()
-    allow_online = st.toggle("Use online services", key="online", disabled=not online_possible,
-                             help=None if online_possible else "Not set up on this app.")
-    if online_possible:
-        st.caption("Off by default: everything is checked on this server. When on, links can be checked with "
-                   "Google Safe Browsing, hard-to-read photos can be read by OpenAI, and you can ask OpenAI for "
-                   "an explanation. Phone numbers, accounts, codes and other personal details are masked "
-                   "before any text is sent.")
-allow_online = bool(st.session_state.get("online")) and (llm.available() or reputation.enabled())
+    online_possible = True   # domain-age checks need no key; other services only if configured
+    allow_online = st.toggle("Use online services", key="online")
+    extras = [x for x in (", ".join(reputation.configured()) if reputation.enabled() else "",
+                          "OpenAI (hard-to-read photos, and explanations when you ask)" if llm.available() else "") if x]
+    st.caption("Off by default: everything is checked on this server. When on, only for checks that need it: a "
+               "link's website name is looked up to see how new it is (rdap.org)"
+               + (", and links are checked with " + "; ".join(extras) if extras else "")
+               + ". Phone numbers, accounts, codes and other personal details are masked before any text is sent.")
+allow_online = bool(st.session_state.get("online"))
 
 @st.cache_resource(show_spinner="Loading the model…")
 def warm_model():
@@ -75,7 +75,7 @@ if DARK:
                   SAFE: ("#6ce9a6", "#0f2e20", "✅"), UNSURE: ("#d0d5dd", "#22262f", "❔")})
     LINK_STYLE.update({"Dangerous": ("#fda29b", "#3d1714", "⛔"), "Suspicious": ("#fec84b", "#3b2a0e", "⚠️"),
                        "Official website": ("#6ce9a6", "#0f2e20", "✅"),
-                       "No warning signs found": ("#d0d5dd", "#22262f", "ℹ️")})
+                       "Not verified": ("#d0d5dd", "#22262f", "❔")})
 C = ({"calm_bg": "#102a56", "calm_fg": "#b2ccff", "calm_border": "#5b8def", "card_bg": "#1d2433",
       "card_fg": "#f2f4f7", "card_sub": "#98a2b3", "card_border": "#344054", "them": "#262b36",
       "you": "#14432a", "bubble_fg": "#f2f4f7", "who": "#98a2b3", "flag": "#fda29b"} if DARK else
@@ -290,8 +290,9 @@ def render_timeline(conv: dict) -> None:
         side = "you" if t["is_user"] or t["from"].lower() in ("you", "me") else "them"
         flagged = " flagged" if t["red_flags"] else ""
         flags = "".join(f'<div class="flag">⚠ {html.escape(f)}</div>' for f in t["red_flags"][:2])
+        when = f' · {html.escape(t["when"])}' if t.get("when") else ""
         parts.append(f'<div class="bubble {side}{flagged}"><div class="who">{t["message_number"]}. '
-                     f'{html.escape(t["from"])}</div>{html.escape(t["text"]).replace(chr(10), "<br>")}{flags}</div>')
+                     f'{html.escape(t["from"])}{when}</div>{html.escape(t["text"]).replace(chr(10), "<br>")}{flags}</div>')
     st.markdown('<div style="display:flex;flex-direction:column">' + "".join(parts) + "</div>", unsafe_allow_html=True)
     if not first:
         st.caption("No message in this chat has a clear red flag.")
@@ -300,11 +301,17 @@ def render_timeline(conv: dict) -> None:
 def render_result(result, photos: list[dict]) -> None:
     rep = result.report
     for p in photos:
-        with st.expander(f"Text found in {p['name']}", expanded=False):
-            a, b = st.columns([1, 2])
-            a.image(p["data"], width="stretch")
-            b.text(p["text"] or "No text found in this image.")
-            b.caption(f"Read with {p['method']}. If something is wrong, paste the text in the box instead.")
+        with st.expander(f"What we found in {p['name']} ({p['label']})", expanded=bool(p["facts"])):
+            for fact in p["facts"]:
+                st.markdown(f"- {html.escape(fact)}")
+            if p["kind"] == "image":
+                a, b = st.columns([1, 2])
+                a.image(p["data"], width="stretch")
+                b.text(p["text"] or "No text found in this image.")
+                b.caption(f"Read with {p['method']}. If something is wrong, paste the text in the box instead.")
+            elif p["text"]:
+                st.text(p["text"][:1500] + ("…" if len(p["text"]) > 1500 else ""))
+                st.caption(f"{p['label']}: {p['method']}.")
 
     if rep.analysis.get("input_truncated"):
         st.info(f"This was very long, so only the most recent {safety.MAX_MESSAGE_CHARS:,} characters were checked.")
@@ -317,6 +324,12 @@ def render_result(result, photos: list[dict]) -> None:
                 f'<p>{html.escape(result.detail)}</p>{local}</div>', unsafe_allow_html=True)
 
     ai = ai_explanation(rep, language)
+    # What the verdict, confidence and potential harm mean together.
+    o = rep.outcome
+    st.markdown(f"**{html.escape(o.get('headline', ''))}** {html.escape(o.get('action', ''))}")
+    if rep.harm.get("at_stake") and result.verdict != SAFE:
+        st.markdown(f"**What's at stake ({rep.harm['level'].lower()}):** {html.escape(rep.harm['at_stake'])}")
+
     summary = ai or llm.Explanation(llm.template_explanation(rep), "template")
     spoken = summary.text if (summary.source == "llm" or language == "English") else i18n.spoken_summary(result.verdict, language)
     speak_button(spoken, language, key="speak")
@@ -333,7 +346,26 @@ def render_result(result, photos: list[dict]) -> None:
     if result.verdict in (SCAM, CAREFUL, UNSURE):
         share_buttons(circle.family_message(result, language, app_url()), key="share_result")
 
-    # 3. Exactly why.
+    # 3. In plain words: what they want, and how they're pushing.
+    if rep.intents:
+        st.markdown("**🎯 What they want you to do**")
+        for it in rep.intents:
+            st.markdown(f"- {it['action']}" + (f": **{html.escape(it['detail'])}**" if it["detail"] else ""))
+    if rep.pressure_tactics:
+        st.markdown("**🧠 How they're pressuring you**")
+        for t in rep.pressure_tactics:
+            quote = f' (“{html.escape(t["evidence"])}”)' if t["evidence"] else ""
+            st.markdown(f"- **{t['lever']}**: {t['explanation']}{quote}")
+
+    if rep.chains:
+        st.markdown(f"**🧩 Matches a known scam pattern: {html.escape(rep.chains[0]['pattern'])}.** "
+                    f"{html.escape(rep.chains[0]['explanation'])}")
+    if rep.mitigations and result.verdict in (SCAM, CAREFUL):
+        st.markdown("**⚖️ Signs it may be genuine** (they lower our confidence, not the warning)")
+        for m in rep.mitigations:
+            st.markdown(f"- {html.escape(m)}")
+
+    # 4. Exactly why.
     st.subheader("Exactly what's suspicious")
     if rep.conversation:
         render_timeline(rep.conversation)
@@ -395,6 +427,10 @@ def render_result(result, photos: list[dict]) -> None:
             st.markdown("**Looks like:** " + ", ".join(rep.scam_types))
         if rep.impersonated_organisation:
             st.markdown(f"**Pretending to be:** {rep.impersonated_organisation}")
+        if rep.identity_checks:
+            st.markdown("**Identity checks**")
+            for c in rep.identity_checks:
+                st.markdown(f"- {html.escape(c)}")
         if rep.conversation and rep.conversation["conversation_findings"]:
             st.markdown("**Across the conversation**")
             for f in rep.conversation["conversation_findings"]:
@@ -402,8 +438,10 @@ def render_result(result, photos: list[dict]) -> None:
         present = [c for c in result.categories if c.present and
                    (c.category.key != "scam_wording" or result.verdict in (SCAM, CAREFUL))]
         for c in present:
+            note = "" if c.independent else (f" · same evidence as {c.same_as}, counted once" if c.same_as
+                                             else " · backs up the other evidence")
             st.markdown(f'<span class="badge" style="background:{LEVEL_COLOR[c.category.level]}">{c.category.level}</span>'
-                        f'**{c.category.name}**', unsafe_allow_html=True)
+                        f'**{c.category.name}**<span style="opacity:.7">{html.escape(note)}</span>', unsafe_allow_html=True)
             for reason in dict.fromkeys(sig.reason for sig in c.signals):
                 st.markdown(f"- {reason}")
         if rep.urls:
@@ -432,7 +470,11 @@ def render_result(result, photos: list[dict]) -> None:
                 st.markdown(f"- {m}")
         st.download_button("Download the evidence (JSON)", json.dumps(rep.to_dict(), ensure_ascii=False, indent=2),
                            file_name="jagratha-evidence.json", mime="application/json")
+        st.markdown("**Checks that ran**")
+        st.markdown(" · ".join(("✅ " if m["ran"] else "➖ ") + m["module"] for m in rep.modules))
+        st.caption("➖ = not needed for this input (for example, no links means no link check).")
         st.json({"language": rep.language.to_dict(), "input_type": rep.source, "analysis": rep.analysis,
+                 "detectors": rep.modules,
                  "ml_model_output_uncalibrated": None if result.model_score is None else round(result.model_score, 3),
                  "words_that_raised_the_model_output": result.suspicious_words}, expanded=False)
 
@@ -459,7 +501,7 @@ tab_msg, tab_link, tab_call, tab_help = st.tabs(["📩 Message", "🔗 Link", "�
 
 # --- tab 1: messages and conversations --------------------------------------------------------------
 with tab_msg:
-    st.write("Paste a message or a whole chat, or tap + to add a screenshot.")
+    st.write("Paste a message or a whole chat, or tap + to add a screenshot, PDF, email or app file.")
     if "text" not in st.session_state:
         st.session_state.text = ""
     if "show_upload" not in st.session_state:
@@ -487,11 +529,13 @@ with tab_msg:
 
     photos = []
     if st.session_state.show_upload:
-        photos = st.file_uploader("Add a screenshot or photo of the message or chat. You can add more than one, "
-                                  "for example a long chat in parts.",
-                                  type=["png", "jpg", "jpeg", "webp"], accept_multiple_files=True, key="photos")
+        photos = st.file_uploader("Add screenshots or photos, a PDF, an email saved as .eml, or an Android app "
+                                  "(.apk). Files are checked, never opened or installed.",
+                                  type=["png", "jpg", "jpeg", "webp", "pdf", "eml", "apk",
+                                        "mp3", "m4a", "ogg", "opus", "wav", "aac", "mp4", "3gp", "webm"],
+                                  accept_multiple_files=True, key="photos")
     if photos:
-        st.caption(f"{len(photos)} photo{'s' if len(photos) > 1 else ''} added. Press Check message to read "
+        st.caption(f"{len(photos)} file{'s' if len(photos) > 1 else ''} added. Press Check message to check "
                    f"{'them' if len(photos) > 1 else 'it'}.")
     st.pills("Or try an example", list(EXAMPLES), key="example", on_change=use_example)
     if ml.load() is None:
@@ -502,34 +546,46 @@ with tab_msg:
         if not text.strip() and not photos:
             st.warning("Paste a message or add a photo with +, then press Check message.")
         else:
-            read = []
+            read, media_only = [], []
             if len(photos) > safety.MAX_IMAGES:
-                st.warning(f"Only the first {safety.MAX_IMAGES} photos are read.")
+                st.warning(f"Only the first {safety.MAX_IMAGES} files are checked.")
                 photos = photos[:safety.MAX_IMAGES]
-            if photos and not ocr.available(allow_online):
-                st.error("Reading photos isn't set up here yet. Install Tesseract OCR (see the README) "
-                         "or paste the message text instead.")
-            elif photos:
-                with st.spinner("Reading the text in your photo…"):
-                    for p in photos:
-                        try:
-                            o = ocr.read_image(p.getvalue(), allow_online)
-                            read.append({"name": p.name, "data": p.getvalue(), "text": o.text,
-                                         "method": o.method + (f". {o.note}" if o.note else "")})
-                        except safety.UnsafeInput as e:
-                            st.error(f"{p.name}: {e}")
-                        except Exception as e:
-                            st.error(f"Couldn't read {p.name} ({type(e).__name__}). Try a clearer screenshot "
-                                     "or paste the text.")
+            with st.spinner("Checking your files…"):
+                for p in photos:
+                    try:
+                        fr = files.inspect_upload(p.getvalue(), p.name, allow_online)
+                    except safety.UnsafeInput as e:
+                        st.error(f"{p.name}: {e}")
+                        continue
+                    except ocr.OCRUnavailable:
+                        st.error(f"{p.name}: reading photos isn't set up here yet. Paste the message text instead.")
+                        continue
+                    except Exception as e:
+                        st.error(f"Couldn't check {p.name} ({type(e).__name__}). Try a screenshot or paste the text.")
+                        continue
+                    entry = {"name": p.name, "kind": fr.kind, "label": fr.label, "text": fr.text,
+                             "facts": fr.facts, "method": fr.method, "signals": fr.signals,
+                             "summary": fr.summary(), "ocr_quality": fr.ocr_quality,
+                             "data": p.getvalue() if fr.kind == "image" else None}
+                    (media_only if fr.kind in ("audio", "video") else read).append(entry)
+            for m in media_only:
+                st.info(f"**{m['name']}** ({m['label'].lower()}): " + " ".join(m["facts"]))
             combined = "\n".join(t for t in [text.strip(), *(p["text"] for p in read)] if t.strip())
-            if combined:
-                source = "photo" if read and not text.strip() else "text"
-                result = check(combined, source=source, allow_online=allow_online)
+            extra = [sig for p in read for sig in p["signals"]]
+            if combined or extra:
+                if not combined:
+                    combined = "Attached files: " + ", ".join(p["name"] for p in read)
+                kinds = {p["kind"] for p in read}
+                source = "photo" if kinds == {"image"} and not text.strip() else "text"
+                qualities = [p["ocr_quality"] for p in read if p.get("ocr_quality") is not None]
+                result = check(combined, source=source, allow_online=allow_online, extra_signals=extra,
+                               attachments=[p["summary"] for p in read],
+                               ocr_quality=min(qualities) if qualities else None)
                 st.session_state.result = (result, read)
                 st.session_state.pop("ai", None)
                 telemetry.emit(telemetry.check_event(result, len(combined)))
-            elif photos:
-                st.warning("No text could be found in the photo. Try a clearer screenshot or paste the message.")
+            elif photos and not media_only:
+                st.warning("Nothing could be read from the file. Try a clearer screenshot or paste the message.")
 
     if "result" in st.session_state:
         render_result(*st.session_state.result)
@@ -540,7 +596,7 @@ with tab_link:
     url = st.text_input("Link", placeholder="e.g. bit.ly/abc123 or sbi-rewards-claim.in/login",
                         label_visibility="collapsed", key="url")
     if st.button("Check link", type="primary", width="stretch"):
-        st.session_state.pop("redirects", None)
+        st.session_state.pop("destination", None)
         try:
             st.session_state.link = inspect_link(url, online=allow_online) if url.strip() else None
             if not url.strip():
@@ -550,46 +606,69 @@ with tab_link:
             st.warning(str(e))
 
     lr = st.session_state.get("link")
+    dest = st.session_state.get("destination")
     if lr:
-        fg, bg, icon = LINK_STYLE[lr.verdict]
+        # The overall verdict includes the destination check, if the user ran it.
+        overall = lr.verdict
+        if dest:
+            rank = ["Official website", "Not verified", "Suspicious", "Dangerous"]
+            overall = max(lr.verdict, dest.verdict, key=rank.index)
+            if dest.verdict == "Not verified" and lr.verdict == "Official website" and dest.final_report \
+                    and dest.final_report.verdict != "Official website":
+                overall = "Not verified"   # an official-looking link that ends up somewhere else
+        fg, bg, icon = LINK_STYLE[overall]
         st.markdown(f'<div class="verdict" style="background:{bg};color:{fg};border:2px solid {fg}">'
-                    f'<h2>{icon} {lr.verdict}</h2><p>{html.escape(lr.info.host)}</p></div>', unsafe_allow_html=True)
-        for ind in lr.indicators:
-            st.markdown(f"{INDICATOR_ICON[ind.level]} {ind.text}")
-        st.dataframe([{"Website name": lr.info.host, "Registered domain": lr.info.domain,
-                       "Pretends to be": lr.info.claims_to_be or "", "Blocklist check": lr.info.reputation}],
-                     hide_index=True, width="stretch")
-        if lr.verdict == "No warning signs found":
-            st.info("No warning signs isn't the same as safe: new scam sites look ordinary. Only enter passwords "
-                    "or pay on websites you went to yourself, not ones sent to you.")
-        if lr.verdict in ("Dangerous", "Suspicious"):
+                    f'<h2>{icon} {overall}</h2><p>{html.escape(lr.info.display_host or lr.info.host)}'
+                    + (f' → <b>{html.escape(lr.passes_to)}</b>' if lr.passes_to else "") + '</p></div>',
+                    unsafe_allow_html=True)
+        if overall in ("Dangerous", "Suspicious"):
             st.markdown("**Don't open this link.** If you already did, don't enter any details there.")
+        elif overall == "Not verified":
+            st.info("Not verified isn't the same as safe: new scam sites look ordinary and often aren't in any "
+                    "database yet. Only log in or pay on websites you opened yourself, not ones sent to you.")
 
-        st.markdown("**Where does it really lead?**")
-        st.caption("This contacts the website from our server (not your phone) and follows its redirects, "
-                   "without loading the page. Some scam links are unique to each person, so the scammer "
-                   "may be able to tell the link was checked.")
-        if st.button("Follow the redirects", key="follow"):
-            with st.spinner("Following the link…"):
-                chain = redirects.follow(lr.url)
-            st.session_state.redirects = chain
-        chain = st.session_state.get("redirects")
-        if chain:
-            for i, hop in enumerate(chain, 1):
+        STAGE_NAMES = {"structure": "1. How the address is built", "brand": "2. Brand check",
+                       "reputation": "3. Reputation", "destination": "4. Where it leads"}
+        for stage in ("structure", "brand", "reputation"):
+            items = [t for t in lr.stages.get(stage, [])]
+            if not items and stage != "reputation":
+                items = ["Nothing unusual found."]
+            st.markdown(f"**{STAGE_NAMES[stage]}**")
+            levels = {i.text: i.level for i in lr.indicators}
+            for t in items:
+                st.markdown(f"{INDICATOR_ICON.get(levels.get(t, 'info'), 'ℹ️')} {t}")
+        st.dataframe([{"Website name": lr.info.display_host or lr.info.host, "Registered domain": lr.info.domain,
+                       "Pretends to be": lr.info.claims_to_be or "", "Threat databases": lr.info.reputation}],
+                     hide_index=True, width="stretch")
+
+        st.markdown(f"**{STAGE_NAMES['destination']}**")
+        st.caption("This visits the link from our server (not your phone), follows it to the final page and reads "
+                   "the page's code as text: nothing is displayed or run. Some scam links are unique to each "
+                   "person, so the scammer may be able to tell the link was checked.")
+        if st.button("🔬 Inspect where it leads", key="inspect_dest"):
+            with st.spinner("Following the link and inspecting the page…"):
+                st.session_state.destination = destination.inspect_destination(lr.url, online=allow_online)
+            st.rerun()
+        if dest:
+            for n, hop in enumerate(dest.chain, 1):
                 status = hop.get("stopped") or f"HTTP {hop['status']}"
-                st.markdown(f"{i}. `{hop['url']}` ({status})")
-            final = chain[-1]["url"]
-            if len(chain) > 1:
-                try:
-                    end = inspect_link(final)
-                    st.markdown(f"**Final destination: {end.info.host} ({end.verdict.lower()}).**")
-                    for ind in end.indicators:
-                        if ind.level in ("danger", "warning", "good"):
-                            st.markdown(f"{INDICATOR_ICON[ind.level]} {ind.text}")
-                except ValueError:
-                    pass
-    if not reputation.enabled():
-        st.caption("Blocklist checks are off on this app. They need a free Google Safe Browsing key (see the README).")
+                st.markdown(f"{n}. `{hop['url']}` ({status})")
+            if dest.error:
+                st.warning(f"The page couldn't be inspected: {dest.error}")
+            for f in dest.findings:
+                st.markdown(f"{INDICATOR_ICON[f['level']]} {f['text']}")
+            if dest.final_report and dest.final_report.host != lr.info.host:
+                st.markdown(f"**Final website: {html.escape(dest.final_report.display_host)} "
+                            f"({dest.final_report.verdict.lower()})**")
+                for f in dest.final_report.all_findings():
+                    if f.level in ("danger", "warning", "good"):
+                        st.markdown(f"{INDICATOR_ICON[f.level]} {f.text}")
+            for fact in dest.facts:
+                st.caption(fact)
+    sources = reputation.configured()
+    st.caption(("Threat databases in use: " + ", ".join(sources) + ". " if sources else
+                "No threat databases are set up on this app, so links are checked by their structure and brand "
+                "only. ") + "Domain age is checked when online services are on.")
 
 # --- tab 3: emergency -------------------------------------------------------------------------------
 with tab_call:
@@ -606,16 +685,19 @@ with tab_help:
 
 st.divider()
 with st.expander("🔒 How your messages and photos are handled"):
-    st.markdown(f"""
+    st.markdown("""
 - **Nothing is stored.** Messages and photos are checked in memory and forgotten when you close the page.
   They aren't saved to disk, a database or logs.
 - **Checked on this server by default.** Rules, the ML model, link analysis and photo reading all run here.
-- **Online services only if you turn them on** (in ⚙️ settings{"" if online_possible else "; not set up on this app"}).
-  Then: links may be checked with Google Safe Browsing; a photo is sent to OpenAI only if it couldn't be read here;
-  and an AI explanation is generated only when you press the button, from the detection results with phone numbers,
-  accounts, codes and other personal details masked.
-- **Nothing is opened or run.** Links aren't visited unless you press "Follow the redirects", attachments and apps are
-  never downloaded or installed, and photos are checked to be real images before they're read.
+- **Online services only if you turn them on** (in ⚙️ settings). Then, only when a check needs it: a link's website
+  name is looked up to see when it was registered (rdap.org); links may be checked with threat databases that are set
+  up on this app (Google Safe Browsing, Google Web Risk, URLhaus, PhishTank); a photo is sent to OpenAI only if it
+  couldn't be read here; and an AI explanation is made only when you press the button, from the detection results with
+  phone numbers, accounts, codes and other personal details masked. Only the link is sent to link services, never
+  your message.
+- **Nothing is opened or run.** Links aren't visited unless you press "Follow the redirects". Uploaded files are
+  identified by their contents (not their names) and inspected as data: PDFs, emails and apps are read in a separate,
+  time- and memory-limited process, and are never opened, installed or executed.
 - **Logs contain no message content:** only the verdict, which rules fired, timings and similar anonymous details.
 - **Feedback** stores message text only if you tick the box, with personal details masked, for human review.
 """)

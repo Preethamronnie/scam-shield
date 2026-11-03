@@ -8,7 +8,7 @@ false alarms on genuine messages and catches look-alike sites.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 # Official domains of brands that scammers commonly impersonate. Any
 # subdomain of these is treated as official (e.g. retail.onlinesbi.sbi).
@@ -149,15 +149,45 @@ def brands_in_text(text: str) -> set[str]:
     return {ALIASES[m.group(0)] for m in _ALIAS_RX.finditer(low)}
 
 
+# Disguised links: "sbi-kyc[.]example[.]xyz", "hxxps://", "sbi-verify . top", "example(dot)com".
+_FAKE_DOT = re.compile(r"\s*(?:\[\.\]|\(\.\)|\{\.\}|\[dot\]|\(dot\)|\{dot\})\s*", re.I)
+_HXXP = re.compile(r"\bhxxp(s?)(\[:\]|:)//", re.I)
+_SPACED_DOT = re.compile(r"\b([a-z0-9][a-z0-9-]{1,62})\s+\.\s+(" + "|".join(sorted(
+    {"com", "in", "net", "org", "co", "xyz", "top", "info", "online", "site", "link", "live", "shop", "vip", "app",
+     "click", "win", "fun", "buzz", "icu"}, key=len, reverse=True)) + r")\b", re.I)
+
+
+def refang(text: str) -> tuple[str, bool]:
+    """Undo common link disguises so the link can be checked. Returns (text, was_disguised)."""
+    out = _FAKE_DOT.sub(".", text)
+    out = _HXXP.sub(lambda m: f"http{m.group(1)}://", out)
+    for _ in range(4):   # "sbi . co . in" needs more than one pass
+        joined = _SPACED_DOT.sub(lambda m: f"{m.group(1)}.{m.group(2)}", out)
+        if joined == out:
+            break
+        out = joined
+    return out, out != text
+
+
 def find_links(text: str) -> list[str]:
+    text, _ = refang(text)
     # A bare "name.apk" is a file name (handled by the APK rule), not a website.
     # Sentence punctuation right after a link isn't part of it ("…example.xyz.").
-    links = [u.rstrip(".,;:!?)]'\"") for u in _URL.findall(text)]
+    # The domain of an email address (name@gmail.com) isn't a website link.
+    links = [m.group(0).rstrip(".,;:!?)]'\"") for m in _URL.finditer(text)
+             if not (m.start() > 0 and text[m.start() - 1] == "@")]
     return [u for u in links if u and not (u.lower().endswith(".apk") and "/" not in u)]
 
 
+_DISPLAY = {"indiapost": "India Post", "incometax": "Income Tax Department", "echallan": "e-Challan (Parivahan)",
+            "phonepe": "PhonePe", "paytm": "Paytm", "whatsapp": "WhatsApp", "youtube": "YouTube", "fastag": "FASTag",
+            "bluedart": "Blue Dart", "irctc": "IRCTC", "uidai": "UIDAI", "aadhaar": "Aadhaar (UIDAI)",
+            "parivahan": "Parivahan", "flipkart": "Flipkart", "amazon": "Amazon", "jio": "Jio", "olx": "OLX",
+            "epfo": "EPFO", "npci": "NPCI"}
+
+
 def _display(brand: str) -> str:
-    return brand.upper() if len(brand) <= 4 else brand.title()
+    return _DISPLAY.get(brand) or (brand.upper() if len(brand) <= 4 else brand.title())
 
 
 @dataclass
@@ -170,15 +200,51 @@ class UrlInfo:
     claims_to_be: str | None    # brand the link or message pretends to be
     reputation: str             # from reputation.lookup: unsafe | not listed | not checked
     note: str
+    display_host: str = ""      # look-alike letters decoded: xn--pple-43d.com -> аpple.com
 
     def to_dict(self) -> dict:
         return {k: v for k, v in self.__dict__.items()}
 
 
+def decode_host(host: str) -> str:
+    """Show the real characters of a punycode (look-alike) name: xn--pple-43d.com -> аpple.com."""
+    if "xn--" not in host:
+        return host
+    try:
+        return host.encode("ascii").decode("idna")
+    except Exception:
+        return host
+
+
+def _assessment(r) -> tuple[str, str]:
+    """A one-word summary of the URL report, for the evidence table."""
+    ids = {f.id for f in r.all_findings()}
+    if "blocklisted_link" in ids:
+        return "known_dangerous", "Listed as dangerous by a threat database."
+    if "fake_brand_link" in ids:
+        return "impersonation", f"Pretends to be {r.claims_to_be}, but isn't their real website."
+    if "homograph" in ids:
+        return "lookalike_letters", "Uses look-alike letters from another alphabet."
+    if "url_userinfo" in ids:
+        return "at_trick", f"Uses the @ trick; the real site is {r.host}."
+    if "open_redirect" in ids:
+        return "redirect", f"Passes through {r.domain} on its way to {r.redirects_to.host}."
+    if "brand_mismatch" in ids:
+        return "brand_mismatch", f"The message claims to be from {r.claims_to_be}, but this isn't their website."
+    if "short_link" in ids:
+        return "shortened", "A shortened link that hides where it really goes."
+    if _IP.match(r.host):
+        return "ip_address", "A bare number address instead of a website name."
+    if r.official and not r.redirects_to:
+        return "official", "An official website of the company or government."
+    if r.verdict in ("Dangerous", "Suspicious"):
+        return "unusual_domain", "Has warning signs (see the link check)."
+    return "unknown", "Not a known official site. No warning signs found, but that doesn't make it safe."
+
+
 def analyze_urls(text: str, online: bool = False) -> list[UrlInfo]:
-    """Everything about each link that can be worked out locally; with
-    online=True, also its reputation (stage 2 of the pipeline)."""
-    from .reputation import lookup  # optional online check, off unless configured
+    """Every link in the text, run through the four-stage URL intelligence (stages 1-3)."""
+    from . import reputation, urlintel
 
     infos, seen = [], set()
     mentioned = brands_in_text(text)
@@ -187,56 +253,33 @@ def analyze_urls(text: str, online: bool = False) -> list[UrlInfo]:
         if "." not in host or host in seen:
             continue
         seen.add(host)
-        domain, tld = registrable(host), host.rsplit(".", 1)[-1]
-        brand = None if is_official(host) else brand_in_host(host)
-        if is_official(host):
-            kind, note = "official", "An official website of the company or government."
-        elif brand:
-            kind, note = "impersonation", f"Pretends to be {_display(brand)}, but isn't their real website."
-        elif domain in SHORTENERS:
-            kind, note = "shortened", "A shortened link that hides where it really goes."
-        elif _IP.match(host):
-            kind, note = "ip_address", "A bare number address instead of a website name."
-        elif mentioned:
-            brand = sorted(mentioned)[0]
-            kind, note = "brand_mismatch", f"The message claims to be from {_display(brand)}, but this isn't their website."
-        elif tld in RISKY_TLDS:
-            kind, note = "unusual_domain", f"An unusual website ending in .{tld}."
-        else:
-            kind, note = "unknown", "Not a known official site; no specific warning signs."
-        infos.append(UrlInfo(url, host, domain, kind, _display(brand) if brand else None,
-                             lookup(url) if online and kind != "official" else "not checked", note))
+        r = urlintel.analyse(url, mentioned, online)
+        kind, note = _assessment(r)
+        status = reputation.check(url, r.domain, online and not r.official, host).status
+        infos.append(UrlInfo(url, host, r.domain, kind, r.claims_to_be, status, note, r.display_host))
     return infos
 
 
 def check_links(text: str, online: bool = False) -> list[LinkFlag]:
-    """Red flags derived from the URL analysis."""
+    """Red flags from the URL intelligence for every link in the text, strongest of each kind."""
+    from . import urlintel
+
     flags: dict[str, LinkFlag] = {}
-    for u in analyze_urls(text, online):
-        if u.reputation == "unsafe":
-            flags["blocklisted_link"] = LinkFlag(
-                "blocklisted_link", 0.97, phrase=u.host,
-                reason=f"The link ({u.host}) is on Google Safe Browsing's list of dangerous sites.")
-        if u.assessment == "impersonation":
-            flags["fake_brand_link"] = LinkFlag(
-                "fake_brand_link", 0.9, phrase=u.host,
-                reason=f"The link ({u.host}) pretends to be {u.claims_to_be}, but it isn't their real website.")
-        elif u.assessment == "brand_mismatch":
-            flags["brand_mismatch"] = LinkFlag(
-                "brand_mismatch", 0.8, phrase=u.host,
-                reason=f"The message says it's from {u.claims_to_be}, but the link goes to a different website ({u.host}).")
-        if u.assessment == "shortened":
-            flags["short_link"] = LinkFlag("short_link", 0.6, phrase=u.host,
-                                           reason="It uses a shortened link, which hides where it really goes.")
-        elif u.assessment == "ip_address":
-            flags["odd_link"] = LinkFlag("odd_link", 0.75, phrase=u.host,
-                                         reason="The link is a bare number address instead of a website name. Real companies never do this.")
-        elif u.host.rsplit(".", 1)[-1] in RISKY_TLDS and u.assessment != "official":
-            flags.setdefault("odd_link", LinkFlag("odd_link", 0.6, phrase=u.host,
-                             reason=f"The link goes to an unusual website ending in .{u.host.rsplit('.', 1)[-1]}, not an official one."))
-        elif u.assessment == "unknown":
-            flags.setdefault("link", LinkFlag("link", 0.25, phrase=u.host,
-                                              reason="It contains a link. Only open links you were expecting."))
+    if refang(text)[1] and find_links(text):
+        flags["disguised_link"] = LinkFlag(
+            "disguised_link", 0.75, phrase="disguised link",
+            reason="A link is written in a disguised way (like [.] or hxxp) so filters and scanners miss it. "
+                   "Genuine companies don't hide their links.")
+    mentioned = brands_in_text(text)
+    seen = set()
+    for url in find_links(text):
+        host = host_of(url)
+        if "." not in host or host in seen:
+            continue
+        seen.add(host)
+        for sid, strength, reason, phrase in urlintel.signals_from(urlintel.analyse(url, mentioned, online)):
+            if sid not in flags or strength > flags[sid].strength:
+                flags[sid] = LinkFlag(sid, strength, reason, phrase)
     return list(flags.values())
 
 
@@ -256,9 +299,11 @@ class Indicator:
 class LinkReport:
     url: str
     info: UrlInfo
-    verdict: str                     # Dangerous | Suspicious | Official website | No warning signs found
+    verdict: str                     # Dangerous | Suspicious | Official website | Not verified
     indicators: list[Indicator]
     redirects: list | None = None    # filled in by redirects.follow() when the user asks
+    stages: dict = field(default_factory=dict)   # findings grouped by stage
+    passes_to: str | None = None                 # the real destination hidden in a redirect link
 
     def to_dict(self) -> dict:
         return {"url": self.url, "verdict": self.verdict, **self.info.to_dict(),
@@ -267,66 +312,19 @@ class LinkReport:
 
 
 def inspect_link(url: str, online: bool = False) -> LinkReport:
-    """Everything that can be said about a link without opening it."""
+    """Everything that can be said about one link without opening it (stages 1-3)."""
+    from . import urlintel
+
     url = url.strip().strip("<>\"'")
     infos = analyze_urls(url, online)
     if not infos:
         raise ValueError("That doesn't look like a web address. Paste a link such as example.com/page.")
-    info = infos[0]
-    raw = _SCHEME.sub("", url)
-    path = raw.split("/", 1)[1] if "/" in raw else ""
-    tld = info.host.rsplit(".", 1)[-1]
-    ind: list[Indicator] = []
-
-    if info.reputation == "unsafe":
-        ind.append(Indicator("danger", "Google Safe Browsing lists this link as dangerous (phishing or malware)."))
-    if info.assessment == "official":
-        ind.append(Indicator("good", f"{info.domain} is an official website."))
-    if info.assessment == "impersonation":
-        ind.append(Indicator("danger", f"Pretends to be {info.claims_to_be}, but {info.domain} is not their website."))
-    if "xn--" in info.host:
-        ind.append(Indicator("danger", "Uses special look-alike letters in the address (for example a Cyrillic 'а' "
-                                       "instead of 'a'), a trick to copy real website names."))
-    if "@" in raw.split("/", 1)[0]:
-        ind.append(Indicator("danger", "Contains an @ before the website name. Everything before the @ is ignored; "
-                                       "the real site is the part after it."))
-    if info.assessment == "ip_address":
-        ind.append(Indicator("danger", "Uses a number address instead of a website name. Real companies never do this."))
-    if path.lower().endswith(".apk") or url.lower().endswith(".apk"):
-        ind.append(Indicator("danger", "Downloads an Android app (.apk) from outside the Play Store. "
-                                       "These can read your messages and OTPs."))
-    if info.assessment == "shortened":
-        ind.append(Indicator("warning", "A shortened link: you can't see where it really goes."))
-    if tld in RISKY_TLDS and info.assessment != "official":
-        ind.append(Indicator("warning", f"Ends in .{tld}, a domain ending that's cheap and often used for scams."))
-    if _PORT.match(raw):
-        ind.append(Indicator("warning", "Uses an unusual port number in the address."))
-    if info.assessment != "official":
-        words = sorted({w.lower() for w in SENSITIVE_WORDS.findall(info.host + "/" + path)})
-        if words:
-            ind.append(Indicator("warning", f"Uses words scammers like in fake pages: {', '.join(words)}."))
-        m = _BRAND_WORD_RX.search(path.lower())
-        brand = m.group(0) if m else None
-        if brand and info.assessment != "impersonation":
-            ind.append(Indicator("warning", f"Mentions {_display(brand)} in the address, but isn't their website."))
-        if len(info.host.split(".")) >= 5:
-            ind.append(Indicator("warning", "A very long website name with many parts, often used to hide the real site."))
-        if info.domain.count("-") >= 2 and "xn--" not in info.domain:
-            ind.append(Indicator("info", "The website name has several hyphens, common in fake sites."))
-    if url.lower().startswith("http://"):
-        ind.append(Indicator("info", "Not encrypted (http, not https). Never type passwords or card details on it."))
-    if info.reputation == "not checked" and info.assessment != "official":
-        ind.append(Indicator("info", "Not checked against an online blocklist (online checks are off)."))
-    elif info.reputation == "not listed":
-        ind.append(Indicator("info", "Not on Google Safe Browsing's list of dangerous sites. New scam sites often aren't listed yet."))
-
-    levels = {i.level for i in ind}
-    if "danger" in levels:
-        verdict = "Dangerous"
-    elif "warning" in levels:
-        verdict = "Suspicious"
-    elif info.assessment == "official":
-        verdict = "Official website"
-    else:
-        verdict = "No warning signs found"
-    return LinkReport(url, info, verdict, ind)
+    r = urlintel.analyse(url, set(), online)
+    order = {"danger": 0, "warning": 1, "good": 2, "info": 3}
+    seen, indicators = set(), []
+    for f in sorted(r.all_findings(), key=lambda f: order[f.level]):
+        if f.text not in seen:
+            seen.add(f.text)
+            indicators.append(Indicator(f.level, f.text))
+    return LinkReport(url, infos[0], r.verdict, indicators, stages={k: [x.text for x in v] for k, v in r.by_stage().items()},
+                      passes_to=r.redirects_to.display_host if r.redirects_to else None)

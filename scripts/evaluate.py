@@ -40,6 +40,7 @@ from scamshield.risk import CAREFUL, SAFE, SCAM, UNSURE
 from scripts.train import MODERN_WEIGHT
 
 SEED = 42
+CALIBRATION: list[tuple] = []   # (confidence, label, verdict) for every message judged by the full system
 VERDICTS = [SCAM, CAREFUL, UNSURE, SAFE]
 # Genuine messages whose false alarms hurt trust most: OTPs, bank and
 # payment alerts, official links, bills.
@@ -112,6 +113,7 @@ def system_section(title: str, texts, y, model_p, groups=None, note: str = "") -
     y = np.asarray(y)
     # The full pipeline (preprocessing, rules, URL checks, context engine, risk aggregation).
     res = [analyze(t, model_p=float(p)) for t, p in zip(texts, model_p)]
+    CALIBRATION.extend((r.report.confidence, int(lab), r.verdict) for r, lab in zip(res, y))
     rules = [analyze(t, model_p=None) for t in texts]
     out = [f"## {title}", ""]
     if note:
@@ -194,6 +196,33 @@ def alternative_section(modern, p_cv, te, p_te_full) -> list[str]:
     return out + [""]
 
 
+def calibration_section(results: list[tuple]) -> list[str]:
+    """F. Does the confidence level mean anything? For each level, how often the
+    verdict was right. A verdict is right when a scam is flagged ("Likely a scam"
+    or "Be careful") or a genuine message is cleared; "Insufficient information"
+    is counted separately as undecided."""
+    out = ["## F. Confidence calibration: is \"High\" confidence really more reliable?", "",
+           "All test sets combined (modern messages with the cross-validated model, 2012 SMS held out, and the "
+           "conversations). If confidence is meaningful, accuracy should fall from High to Medium to Low.", "",
+           "| Confidence | Messages | Right | Wrong | Undecided | Right answers | Wrong answers |", "|---|---|---|---|---|---|---|"]
+    accs = {}
+    for level in ("High", "Medium", "Low"):
+        rows = [(lab, v) for c, lab, v in results if c == level]
+        right = sum((lab == 1 and v in (SCAM, CAREFUL)) or (lab == 0 and v == SAFE) for lab, v in rows)
+        undecided = sum(v == UNSURE for _, v in rows)
+        wrong = len(rows) - right - undecided
+        accs[level] = right / len(rows) if rows else None
+        out.append(f"| {level} | {len(rows)} | {right} | {wrong} | {undecided} | "
+                   f"{rate(right, len(rows)) if rows else 'n/a'} | {rate(wrong, len(rows)) if rows else 'n/a'} |")
+    vals = [accs[k] for k in ("High", "Medium", "Low") if accs[k] is not None]
+    ordered = all(a >= b for a, b in zip(vals, vals[1:]))
+    out += ["", "\"Right answers\" counts an undecided verdict as not right: Low confidence is mostly \"Insufficient "
+            "information\" and hedged \"Be careful\" answers, which is the point of being unsure.",
+            "", "The share of right answers falls from High to Medium to Low, as it should." if ordered else
+            "**Warning: right answers don't fall with confidence; the confidence levels need recalibrating.**", ""]
+    return out
+
+
 def conversation_section() -> list[str]:
     """E. Does reading the whole conversation help? Compares judging only the
     other person's last message with judging the full chat."""
@@ -205,6 +234,7 @@ def conversation_section() -> list[str]:
         me = user_speaker(turns)
         last.append(analyze([t for t in turns if t.speaker != me][-1].text))
         full.append(analyze(c["text"]))
+        CALIBRATION.append((full[-1].report.confidence, int(c["label"] == "scam"), full[-1].verdict))
     out = ["## E. Conversations: last message only vs whole conversation", "",
            f"{len(convs)} hand-written chats ({y.sum()} scams, {(1 - y).sum()} genuine look-alikes such as an old "
            "schoolfriend's 'is this Rahul?' or a parent asking for money). Uses the final trained model; "
@@ -270,6 +300,7 @@ def main():
 
     out += alternative_section(modern, p_cv, te, p_te_full)
     out += conversation_section()
+    out += calibration_section(CALIBRATION)
 
     report = "\n".join(out)
     Path("results").mkdir(exist_ok=True)

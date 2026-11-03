@@ -195,6 +195,34 @@ LESSONS: dict[str, Lesson] = {
 }
 
 
+LESSONS["qr_receive_trick"] = LESSONS["pin_to_receive"]
+LESSONS["email_sender_spoof"] = Lesson(
+    "Email impersonation (phishing)",
+    "An email uses a bank's, company's or government office's name, but comes from an ordinary address or a "
+    "look-alike domain, and asks you to log in, pay or open an attachment.",
+    "Familiar names and logos make the email look official.",
+    "The part after the @ is what matters. Banks and government offices use their own domains, never Gmail or "
+    "Yahoo addresses.",
+    "Never log in or pay from a link in an email; open the official app or website yourself.")
+LESSONS["pdf_javascript"] = Lesson(
+    "Malicious document",
+    "A PDF arrives as a bank statement, bill, job offer or legal notice, and contains hidden code or actions "
+    "that try to run when it's opened.",
+    "Official-looking documents feel safe to open.",
+    "Real statements and notices are plain documents. They don't need code, and banks share statements in their "
+    "official app.",
+    "Don't open documents from strangers; get statements from your bank's app or website.")
+LESSONS["pdf_launch"] = LESSONS["pdf_javascript"]
+LESSONS["email_risky_attachment"] = Lesson(
+    "Dangerous email attachment",
+    "An email attachment is really an app, a script or a fake login page, sometimes disguised with a double "
+    "extension like invoice.pdf.exe.",
+    "Curiosity and urgency: 'your invoice', 'your parcel', 'your refund'.",
+    "Documents end in .pdf, .docx or .xlsx. Files ending in .exe, .apk, .js, .html or a double extension are "
+    "programs or web pages.",
+    "Don't open attachments you weren't expecting, even from names you know.")
+
+
 def lessons_for(signals) -> list[Lesson]:
     """Lessons for the detected techniques, strongest evidence first, no repeats."""
     seen, out = set(), []

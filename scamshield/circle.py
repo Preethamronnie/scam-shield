@@ -31,6 +31,9 @@ def defang(text: str) -> str:
     """Make links unclickable but still readable: https://a.b/c -> hxxps://a[.]b/c"""
     def fix(m: re.Match) -> str:
         url = m.group(0)
+        s, e = m.start(), m.end()
+        if (s > 0 and text[s - 1] == "@") or (e < len(text) and text[e] == "@"):
+            return url  # part of a UPI ID or email address, not a tappable link
         if "." not in url or url.replace(".", "").isdigit() and not url.count(".") == 3:
             return url  # amounts like 1,250.50
         url = re.sub(r"^http", "hxxp", url, flags=re.I)
@@ -64,6 +67,11 @@ def family_message(result, language: str = "English", app_url: str | None = None
     lines.append(verdict)
     if rep.impersonated_organisation:
         lines.append(f"Pretending to be: {rep.impersonated_organisation}")
+    if rep.harm.get("level") == "Severe" and result.verdict in (SCAM, CAREFUL):
+        lines.append("What's at stake: " + rep.harm["at_stake"])
+    if rep.intents:
+        wants = [it["action"] + (f" ({it['detail']})" if it["detail"] else "") for it in rep.intents[:2]]
+        lines.append("They want me to: " + defang("; ".join(wants)))
     flags = [c for c in result.categories if c.present and c.category.key != "scam_wording"]
     reasons = list(dict.fromkeys(s.reason for c in flags for s in c.signals))[:max_flags]
     if reasons:
